@@ -520,3 +520,42 @@ mod tests {
         .physics();
     }
 }
+
+// Analytic optical spring adapted from Liquid Glass UI (MIT).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[doc(hidden)]
+pub struct OpticalSpring {
+    pub x: f32,
+    pub velocity: f32,
+}
+
+impl OpticalSpring {
+    pub fn step(&mut self, target: f32, omega: f32, damping: f32, dt: f32) -> bool {
+        let delta = self.x - target;
+        if damping >= 1. {
+            let b = self.velocity + omega * delta;
+            let decay = (-omega * dt).exp();
+            let x = (delta + b * dt) * decay;
+            self.x = target + x;
+            self.velocity = (self.velocity - omega * b * dt) * decay;
+            return self.settle(target);
+        }
+        let wd = omega * (1. - damping * damping).sqrt();
+        let b = (self.velocity + damping * omega * delta) / wd;
+        let decay = (-damping * omega * dt).exp();
+        let (sin, cos) = (wd * dt).sin_cos();
+        let x = (delta * cos + b * sin) * decay;
+        self.x = target + x;
+        self.velocity = decay * wd * (b * cos - delta * sin) - damping * omega * x;
+        self.settle(target)
+    }
+
+    fn settle(&mut self, target: f32) -> bool {
+        if (self.x - target).abs() < 0.0005 && self.velocity.abs() < 0.005 {
+            self.x = target;
+            self.velocity = 0.;
+            return false;
+        }
+        true
+    }
+}

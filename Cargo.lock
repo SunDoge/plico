@@ -3662,6 +3662,7 @@ dependencies = [
 name = "gallery"
 version = "0.4.4"
 dependencies = [
+ "chrono",
  "directories",
  "image",
  "plico",

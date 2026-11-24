@@ -73,7 +73,7 @@ impl Adapter {
         node.world_opacity = opacity * node.paint.opacity;
         self.stats.presentation_visits += 1;
     }
-    fn update_presentation_subtree(&mut self, id: NodeId) {
+    pub(super) fn update_presentation_subtree(&mut self, id: NodeId) {
         let Some(&start) = self.placed_indices.get(&id) else {
             return;
         };

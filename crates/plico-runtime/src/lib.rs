@@ -24,6 +24,7 @@ mod input;
 mod layout_style;
 mod modal;
 mod popover;
+mod popup_motion;
 mod presentation;
 mod recipe;
 mod scroll_motion;

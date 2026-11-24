@@ -47,3 +47,49 @@ and Skia replay are Plico implementations.
 contract and 45%/40% border/secondary-text contrast adjustments from MyGO
 `ui/preferences.go` at the same revision, Copyright (c) 2026 MyGo contributors,
 MIT. The host notification bridge and Plico integration are maintained here.
+
+The optical lens preset in `assets/materials/liquid_glass.wgsl` adapts the magnification,
+dispersive backdrop sampling and directional rim from `src/components/liquid-glass/engine.ts`
+at [bilalgursen/liquid-glass ecc6812](https://github.com/bilalgursen/liquid-glass/tree/ecc6812b3344d494e1817280cc8529c4f4b302b4).
+See [the MIT license](liquid-glass-LICENSE).
+
+The native controls in `widgets/liquid.rs` follow the component families and
+interaction patterns in [bilalgursen/liquid-glass at c2a6aad](https://github.com/bilalgursen/liquid-glass/tree/c2a6aade68fd655771cb98cce21100bbdbd258f3/src/components/liquid-glass).
+The Rust controls and popup neck WGSL are native implementations.
+
+The action-button droplet contour in `assets/materials/liquid_glass.wgsl`,
+the paths in `assets/materials/action_icon.wgsl`, and the corresponding timing
+in `src/widgets/liquid.rs` adapt `engine.ts`, `glass-layer.tsx`, and
+`glass-action-button.tsx` from bilalgursen/liquid-glass revision
+`48d2260c16c0354dcd786ff9c38d216ab0d47aec` (MIT, see `liquid-glass-LICENSE`).
+
+The glass switch and checkbox adapt the dimensions, pointer thresholds,
+spring parameters and check path from `controls/Switch.tsx` and
+`controls/Checkbox.tsx` at the same revision.
+
+The Select and Dropdown glass faces in `liquid_glass.wgsl` and portal
+shadows in `materials.rs` adapt the Card tint, refraction curve, edge line
+and shadow from `glass-popup.tsx` and `engine.ts` at the same revision.
+
+The clear Play button face follows `glass-button-clear.tsx`,
+`glass-button.tsx`, `glass-layer.tsx`, and `engine.ts` at the same
+revision for its XL layout, refraction curve, rim lighting, and shadow.
+
+The popup opening and replay curves, joined Select contour, and centered
+menu and popover growth adapt `glass-popup.tsx` and `engine.ts` at that
+revision. The gallery samples follow the matching `src/docs/demos`
+examples.
+
+The Tabs following spring and selection threshold, Badge marquee cadence,
+and Slide to Confirm thumb geometry and spring parameters follow
+`glass-lens.tsx`, `glass-badge.tsx`, and `glass-slide-to-confirm.tsx` at the
+same revision.
+
+The frosted Card face follows `glass-card.tsx` and the radial bend in
+`engine.ts`. The RangeSlider's grab offset and pressed thumb geometry
+follow `controls/RangeSlider.tsx` and `controls/glass/physics.ts`.
+
+The Switch and Checkbox share the control-lens shading used by RangeSlider.
+Their pressed bevels, refraction strengths and light/dark wells follow
+`controls/Switch.tsx`, `controls/Checkbox.tsx`, and
+`controls/glass/{physics,runtime,tokens}.ts` at the same revision.

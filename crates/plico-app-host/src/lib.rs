@@ -117,19 +117,22 @@ impl<A: ServiceApp, S: HostService<Snapshot = A::Snapshot, Command = A::Command>
     fn show(&mut self, ui: &mut plico::UiContext<'_>) {
         self.refresh_snapshot();
         self.app.show(ui, &mut self.context);
+    }
+
+    fn discard_declaration(&mut self) {
+        self.context.take_commands();
+    }
+
+    fn commit_declaration(&mut self) -> bool {
         let commands = self.context.take_commands();
         let sent = !commands.is_empty();
         for command in commands {
             self.services.send(command);
         }
-        if sent
-            && self
-                .services
-                .snapshot_revision()
-                .is_none_or(|revision| Some(revision) != self.snapshot_revision)
-        {
-            ui.request_rebuild();
-        }
+        sent && self
+            .services
+            .snapshot_revision()
+            .is_none_or(|revision| Some(revision) != self.snapshot_revision)
     }
 }
 

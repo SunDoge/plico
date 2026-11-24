@@ -118,6 +118,13 @@ impl Adapter {
             self.departing_popup = self.modal_root();
             return;
         }
+        // A popup can reopen while its previous closing pose is still mounted.
+        if self
+            .departing_popup
+            .is_some_and(|root| engine.node(root).is_some_and(|node| node.style.modal_open))
+        {
+            self.departing_popup = None;
+        }
         if let Some(dialog) = self.modal_dialog(engine) {
             if self.focused.is_none_or(|e| !contains(engine, dialog, e)) {
                 fn first(engine: &Engine, root: Entity, input_only: bool) -> Option<Entity> {

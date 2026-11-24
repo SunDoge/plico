@@ -27,6 +27,8 @@ pub enum GlassStyle {
     Regular,
     /// Lightly toned glass for imagery; foreground contrast is the caller's responsibility.
     Clear,
+    /// Magnifying lens with a dispersive bevel and directional rim light.
+    Lens,
 }
 
 /// A scene-backed liquid glass material. Surface content is painted afterward,
@@ -87,6 +89,26 @@ impl Default for LiquidGlass {
         }
     }
 }
+#[derive(Clone, Copy)]
+pub(crate) enum GlassFace {
+    Trigger,
+    Panel,
+    Card,
+    SelectPanel,
+    MorphPanel,
+    SlideThumb(f32),
+    ControlLens(f32),
+    ClearButton,
+    Group(bool),
+}
+
+#[derive(Clone, Copy, Default)]
+struct Droplet {
+    separation: f32,
+    grow: [f32; 2],
+    shape: [f32; 3],
+}
+
 impl LiquidGlass {
     /// Native accessibility requests take precedence over material options.
     pub fn follow_preferences(mut self, preferences: crate::DisplayPreferences) -> Self {
@@ -117,6 +139,18 @@ impl LiquidGlass {
         }
     }
 
+    /// Clear optical glass for refracting a detailed scene behind controls and panels.
+    pub fn lens() -> Self {
+        Self {
+            style: GlassStyle::Lens,
+            frost: 0.12,
+            bevel: 18.,
+            refraction: 0.8,
+            rim: 0.65,
+            ..Self::clear()
+        }
+    }
+
     /// Clamp finite values to supported ranges; non-finite values use defaults.
     pub fn validated(self) -> Self {
         let defaults = Self::default();
@@ -140,7 +174,7 @@ impl LiquidGlass {
     }
     #[crate::component]
     pub(crate) fn show(self, cx: &mut UiContext, radius: f32, corner_smoothing: f32) {
-        self.show_surface(cx, radius, corner_smoothing, None);
+        self.show_surface(cx, radius, corner_smoothing, None, None, None);
     }
     #[crate::component]
     pub(crate) fn show_interactive(
@@ -156,7 +190,42 @@ impl LiquidGlass {
             radius,
             smoothing,
             Some([f32::from(hovered), f32::from(pressed)]),
+            None,
+            None,
         );
+    }
+    pub(crate) fn show_droplet(
+        self,
+        cx: &mut UiContext,
+        separation: f32,
+        grow: [f32; 2],
+        shape: [f32; 3],
+    ) {
+        self.show_surface(
+            cx,
+            24.,
+            0.,
+            None,
+            Some(Droplet {
+                separation,
+                grow,
+                shape,
+            }),
+            None,
+        );
+    }
+    pub(crate) fn show_face(self, cx: &mut UiContext, radius: f32, part: GlassFace) {
+        let feedback = match part {
+            GlassFace::Group(_) => Some([
+                f32::from(cx.hovered_within()),
+                f32::from(cx.engine.pressed_within(cx.parent)),
+            ]),
+            GlassFace::Trigger | GlassFace::ClearButton => {
+                Some([f32::from(cx.hovered()), f32::from(cx.pressed())])
+            }
+            _ => None,
+        };
+        self.show_surface(cx, radius, 0., feedback, None, Some(part));
     }
     fn show_surface(
         self,
@@ -164,6 +233,8 @@ impl LiquidGlass {
         radius: f32,
         corner_smoothing: f32,
         feedback: Option<[f32; 2]>,
+        droplet: Option<Droplet>,
+        face: Option<GlassFace>,
     ) {
         let options = self
             .follow_preferences(cx.display_preferences())
@@ -176,19 +247,66 @@ impl LiquidGlass {
                 + ((surface >> 8) & 255) as f32 * 0.7152
                 + (surface & 255) as f32 * 0.0722)
                 / 255.;
-            let style = match options.style {
-                GlassStyle::Custom => 0.,
-                GlassStyle::Regular => 1.,
-                GlassStyle::Clear => 2.,
+            let style = match face {
+                Some(GlassFace::Trigger) => 4.,
+                Some(
+                    GlassFace::Panel
+                    | GlassFace::Card
+                    | GlassFace::SelectPanel
+                    | GlassFace::MorphPanel,
+                ) => 5.,
+                Some(GlassFace::ClearButton | GlassFace::Group(_)) => 6.,
+                Some(GlassFace::SlideThumb(_)) => 3.,
+                Some(GlassFace::ControlLens(_)) => 7.,
+                None => match options.style {
+                    GlassStyle::Custom => 0.,
+                    GlassStyle::Regular => 1.,
+                    GlassStyle::Clear => 2.,
+                    GlassStyle::Lens => 3.,
+                },
             };
             let feedback = feedback.filter(|_| options.interactive);
             let amounts = feedback.unwrap_or([0.; 2]);
+            let optics = droplet.unwrap_or_default();
             // A fixed two-DIP canvas margin encloses MyGO's 1.1/0.45-DIP growth.
-            let outset = if feedback.is_some() { 2. } else { 0. };
-            let max_sigma = match options.style {
-                GlassStyle::Custom => 0.6 + options.frost * 5.,
-                GlassStyle::Regular => 10. * options.frost / 0.42,
-                GlassStyle::Clear => options.frost / 0.42,
+            let outset = if matches!(face, Some(GlassFace::MorphPanel)) || droplet.is_some() {
+                44.
+            } else if matches!(
+                face,
+                Some(GlassFace::ClearButton | GlassFace::SlideThumb(_) | GlassFace::Group(_))
+            ) {
+                36.
+            } else if matches!(face, Some(GlassFace::SelectPanel)) {
+                28.
+            } else if matches!(face, Some(GlassFace::Trigger)) {
+                18.
+            } else if feedback.is_some() {
+                2.
+            } else {
+                0.
+            };
+            let max_sigma = if matches!(
+                face,
+                Some(
+                    GlassFace::Panel
+                        | GlassFace::Card
+                        | GlassFace::SelectPanel
+                        | GlassFace::MorphPanel
+                )
+            ) {
+                5.
+            } else {
+                match options.style {
+                    GlassStyle::Custom => 0.6 + options.frost * 5.,
+                    GlassStyle::Regular => 10. * options.frost / 0.42,
+                    GlassStyle::Clear | GlassStyle::Lens => options.frost / 0.42,
+                }
+            };
+            let face_geometry = if matches!(face, Some(GlassFace::Card)) {
+                let [width, height] = cx.viewport_size();
+                [width * 0.065, height * 0.065, 0.]
+            } else {
+                optics.shape
             };
             let surface = shader(cx, &LIQUID_GLASS)
                 .prefilter_backdrop(max_sigma)
@@ -208,15 +326,41 @@ impl LiquidGlass {
                     ((tint >> 16) & 255) as f32 / 255.,
                     ((tint >> 8) & 255) as f32 / 255.,
                     (tint & 255) as f32 / 255.,
-                    0.,
+                    optics.separation,
                     corner_smoothing,
                     style,
-                    options.clarity,
+                    match face {
+                        Some(GlassFace::SelectPanel | GlassFace::MorphPanel) => 0.,
+                        Some(GlassFace::Panel | GlassFace::Card) => 1.,
+                        _ => options.clarity,
+                    },
                     f32::from(brightness < 0.5),
                     amounts[0],
                     amounts[1],
-                    outset,
-                    outset,
+                    outset - optics.grow[0],
+                    outset - optics.grow[1],
+                    max_sigma,
+                    1.,
+                    match face {
+                        Some(GlassFace::Card) => 1.,
+                        Some(GlassFace::MorphPanel) => 2.,
+                        _ => 0.,
+                    },
+                    match face {
+                        Some(GlassFace::SlideThumb(press) | GlassFace::ControlLens(press)) => press,
+                        Some(GlassFace::Group(vertical)) => {
+                            if vertical {
+                                -2.
+                            } else {
+                                -1.
+                            }
+                        }
+                        _ => 0.,
+                    },
+                    f32::from(droplet.is_some()),
+                    face_geometry[0],
+                    face_geometry[1],
+                    face_geometry[2],
                 ])
                 .paint_outset(outset, outset)
                 .animated(animated);
@@ -275,6 +419,14 @@ impl Elevation {
     pub const FLOATING: Self = Self {
         contact: Some(shadow(1., 3., 0., 0.06, 0)),
         ambient: Some(shadow(12., 32., -4., 0.12, 0)),
+    };
+    pub(crate) const LIQUID_POPUP: Self = Self {
+        contact: Some(shadow(3., 5., 0., 0.045, 0)),
+        ambient: Some(shadow(20., 24., 0., 0.105, 0)),
+    };
+    pub(crate) const GLASS_CARD: Self = Self {
+        contact: Some(shadow(16.5, 18., 0., 0.08, 0)),
+        ambient: Some(shadow(26.4, 27.95, 0., 0.08, 0)),
     };
     pub const OVERLAY: Self = Self {
         contact: Some(shadow(1., 3., 0., 0.07, 0)),

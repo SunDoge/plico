@@ -316,6 +316,7 @@ impl<'e> UiContext<'e> {
             toolbar_buttons: false,
             accordion_items: false,
             material: None,
+            glass_group: false,
         }
     }
     #[inline(always)]

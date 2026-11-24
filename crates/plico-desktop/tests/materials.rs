@@ -4,7 +4,8 @@ use plico::prelude::*;
 use plico_desktop::{NativeApp, RenderBackend, Source, capture};
 #[derive(Default)]
 struct Probe {
-    refraction: f32,
+    material: LiquidGlass,
+    monochrome: bool,
 }
 impl plico_dev::App for Probe {
     #[component]
@@ -22,9 +23,9 @@ impl plico_dev::App for Probe {
                                 .width(20.)
                                 .height(20.)
                                 .background(Color::Literal(if (x + y) % 2 == 0 {
-                                    0x334d6c
+                                    if self.monochrome { 0x303030 } else { 0x334d6c }
                                 } else {
-                                    0xf2c99d
+                                    if self.monochrome { 0xeeeeee } else { 0xf2c99d }
                                 }))
                                 .end();
                         });
@@ -37,10 +38,7 @@ impl plico_dev::App for Probe {
                     .radius(18.)
                     .corner_smoothing(1.)
                     .elevation(Elevation::PANEL)
-                    .material(LiquidGlass {
-                        refraction: self.refraction,
-                        ..Default::default()
-                    })
+                    .material(self.material)
                     .end();
             });
     }
@@ -49,7 +47,13 @@ impl plico_dev::App for Probe {
 #[ignore = "requires system fonts and a working wgpu adapter"]
 fn curved_edges_refract_detailed_background_while_center_and_shadow_contract_remain_stable() {
     let render = |refraction| {
-        let mut source = Source::new(NativeApp(Probe { refraction }));
+        let mut source = Source::new(NativeApp(Probe {
+            material: LiquidGlass {
+                refraction,
+                ..Default::default()
+            },
+            monochrome: false,
+        }));
         let image = capture(&mut source)
             .size(320, 240)
             .renderer(RenderBackend::Wgpu)
@@ -90,6 +94,48 @@ fn curved_edges_refract_detailed_background_while_center_and_shadow_contract_rem
         render(1.6),
         "idle glass must not shimmer between captures"
     );
+}
+
+#[test]
+#[ignore = "requires system fonts and a working wgpu adapter"]
+fn optical_lens_magnifies_the_center_and_separates_colors_at_the_bevel() {
+    let render = |refraction| {
+        let mut source = Source::new(NativeApp(Probe {
+            material: LiquidGlass {
+                refraction,
+                ..LiquidGlass::lens()
+            },
+            monochrome: true,
+        }));
+        capture(&mut source)
+            .size(320, 240)
+            .renderer(RenderBackend::Wgpu)
+            .render()
+            .unwrap()
+    };
+    let flat = render(0.);
+    let lens = render(1.);
+    let at = |x: usize, y: usize| (320 * y + x) * 4;
+    // A displaced interior checker boundary stays neutral, while the bevel splits RGB.
+    let mut interior_changes = 0;
+    let mut colored_bevel = 0;
+    for y in 65..175 {
+        for x in 40..280 {
+            let i: usize = at(x, y);
+            let rgb = &lens.rgba()[i..i + 3];
+            if (68..252).contains(&x) {
+                assert!(rgb[0].abs_diff(rgb[2]) <= 2);
+                interior_changes += usize::from(rgb[0].abs_diff(flat.rgba()[i]) > 30);
+            } else {
+                colored_bevel += usize::from(rgb[0].abs_diff(rgb[2]) > 12);
+            }
+        }
+    }
+    assert!(
+        interior_changes > 200,
+        "magnified pixels: {interior_changes}"
+    );
+    assert!(colored_bevel > 10, "dispersive pixels: {colored_bevel}");
 }
 
 #[derive(Default)]

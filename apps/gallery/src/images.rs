@@ -281,7 +281,31 @@ pub struct GalleryHost {
 }
 impl plico_desktop::HostView for GalleryHost {
     fn show(&mut self, cx: &mut UiContext) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.app.router.show(super::Page::LiquidGlass) {
+            use chrono::{Datelike, Timelike};
+            let local = chrono::Local::now();
+            self.app.liquid_showcase.clock_readout =
+                Some((local.hour(), local.minute(), local.month0()));
+            self.app.liquid_showcase.card_date =
+                Some((local.weekday().num_days_from_monday() as usize, local.day()));
+            cx.request_rebuild_at(
+                cx.now()
+                    + std::time::Duration::from_millis(
+                        60_000
+                            - (u64::from(local.second()) * 1_000
+                                + u64::from(local.nanosecond() / 1_000_000)),
+                    ),
+            );
+        }
         plico_dev::App::show(&mut self.app, cx);
+    }
+    fn take_host_action(&mut self) -> Option<plico_renderer::platform::HostAction> {
+        self.app
+            .liquid_showcase
+            .card_link
+            .take()
+            .map(|url| plico_renderer::platform::HostAction::OpenUrl(url.into()))
     }
     fn theme(&self) -> Theme {
         plico_dev::App::theme(&self.app)

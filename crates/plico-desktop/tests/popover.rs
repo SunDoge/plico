@@ -288,3 +288,253 @@ fn automatic_popup_focus_preserves_pointer_or_keyboard_modality() {
         "keyboard focus must remain visible inside the popup"
     );
 }
+
+#[test]
+fn glass_popup_pose_frames_reuse_layout_and_move_the_shader_canvas() {
+    use plico::widgets::liquid;
+    use plico_renderer::{PaintCommand, Scene};
+
+    struct GlassPopup {
+        state: PopoverState,
+        selected: i32,
+        centered: bool,
+        shows: usize,
+    }
+    impl HostView for GlassPopup {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            self.shows += 1;
+            column(cx).padding(24).children(|cx| {
+                for label in ["One", "Two", "Three", "Four"] {
+                    cx.keyed(label, |cx| {
+                        text(cx, label);
+                    });
+                }
+                if self.centered {
+                    liquid::dropdown_menu(cx, &mut self.state, "Options")
+                        .over_anchor(true)
+                        .children(|cx| {
+                            menu_item(cx, "Archive").clicked();
+                            menu_item(cx, "Report").clicked();
+                            menu_item(cx, "Snooze").clicked();
+                        });
+                } else {
+                    liquid::select(
+                        cx,
+                        &mut self.state,
+                        "Delivery",
+                        &mut self.selected,
+                        &[
+                            SelectOption::new("regular", 0, "Regular"),
+                            SelectOption::new("express", 1, "Express"),
+                            SelectOption::new("overnight", 2, "Overnight"),
+                        ],
+                    )
+                    .response();
+                }
+            });
+        }
+    }
+    for centered in [true, false] {
+        let clock = plico::VirtualClock::default();
+        let mut source = Source::with_clock(
+            GlassPopup {
+                state: PopoverState::default(),
+                selected: 0,
+                centered,
+                shows: 0,
+            },
+            clock.clone(),
+        );
+        let mut text = TextContext::new();
+        let mut scene = Scene::new();
+        let render =
+            |source: &mut Source<GlassPopup>, scene: &mut Scene, text: &mut TextContext| {
+                source
+                    .try_render_retained_frame(scene, text, (640, 480), 1.)
+                    .unwrap();
+            };
+        render(&mut source, &mut scene, &mut text);
+        source.update(|view| view.state.open());
+        render(&mut source, &mut scene, &mut text);
+        let shows = source.view().shows;
+
+        clock.advance(Duration::from_millis(64)).unwrap();
+        render(&mut source, &mut scene, &mut text);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+        // Cross the trigger-to-surface handoff without rebuilding the view.
+        clock.advance(Duration::from_millis(110)).unwrap();
+        render(&mut source, &mut scene, &mut text);
+        assert_eq!(source.view().shows, shows);
+
+        let mut previous = None;
+        for _ in 0..6 {
+            clock.advance(Duration::from_millis(16)).unwrap();
+            render(&mut source, &mut scene, &mut text);
+            let nodes = source.placed_nodes();
+            let (layout, canvas) = nodes
+                .iter()
+                .find_map(|node| {
+                    node.paint
+                        .widget
+                        .as_ref()?
+                        .commands
+                        .iter()
+                        .find_map(|command| {
+                            if let PaintCommand::Shader { effect, .. } = command
+                                && effect.values().get(13) == Some(&5.)
+                            {
+                                return Some((node.rect, effect.logical_size()));
+                            }
+                            None
+                        })
+                })
+                .expect("animated glass panel");
+            if let Some((prior_layout, prior_canvas)) = previous {
+                assert_eq!(layout, prior_layout);
+                assert_ne!(canvas, prior_canvas);
+            }
+            previous = Some((layout, canvas));
+            let stats = source.frame_diagnostics().backend;
+            assert_eq!(stats.layout_runs, 0, "centered={centered}: {stats:?}");
+            assert_eq!(stats.flatten_visits, 0, "centered={centered}: {stats:?}");
+            assert_eq!(stats.text_measure_invalidations, 0);
+            assert_eq!(source.view().shows, shows);
+            assert_eq!(stats.sync_visits, 0);
+            assert!(stats.scene_parts_reused > 0, "{stats:?}");
+            assert!(
+                stats.scene_parts_rebuilt > 0 && stats.scene_parts_rebuilt < nodes.len(),
+                "{stats:?}"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "wgpu")]
+#[test]
+#[ignore = "requires a working wgpu adapter and system fonts"]
+fn retained_popup_fragments_match_full_encoding_through_reversal() {
+    use plico::{VirtualClock, widgets::liquid};
+    use plico_renderer::scene::build_presented_scene_scaled_layers;
+    use plico_renderer::{PaintCommand, Scene};
+    use plico_wgpu::Renderer;
+
+    struct Menu {
+        state: PopoverState,
+    }
+
+    impl plico_desktop::HostView for Menu {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx)
+                .width_percent(100.)
+                .height_percent(100.)
+                .clip(true)
+                .align(Align::Center)
+                .justify(Justify::Center)
+                .children(|cx| {
+                    row(cx).absolute(20., 55.).gap(8).children(|cx| {
+                        for (index, color) in [0xfac2b4, 0xf5e8aa, 0xbcddef].into_iter().enumerate()
+                        {
+                            cx.keyed(index as u64, |cx| {
+                                column(cx)
+                                    .width(96.)
+                                    .height(135.)
+                                    .radius(12.)
+                                    .background(Color::Literal(color))
+                                    .children(|cx| {
+                                        text(cx, "Backdrop");
+                                    });
+                            });
+                        }
+                    });
+                    liquid::dropdown_menu(cx, &mut self.state, "Options")
+                        .over_anchor(true)
+                        .children(|cx| {
+                            menu_item(cx, "Rename").clicked();
+                            menu_item(cx, "Duplicate").clicked();
+                            menu_item(cx, "Share").clicked();
+                        });
+                });
+        }
+    }
+
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(
+        Menu {
+            state: PopoverState::default(),
+        },
+        clock.clone(),
+    )
+    .with_background(peniko::Color::WHITE);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut retained = Scene::new();
+    let mut full = Scene::new();
+    let size = (360, 260);
+    let mut reused = 0;
+    let mut checked_scaled_text = false;
+    for (delta, open) in [
+        (0, Some(true)),
+        (80, None),
+        (44, None),
+        (56, None),
+        (40, Some(false)),
+        (40, None),
+        (45, Some(true)),
+        (80, None),
+        (750, None),
+        (0, Some(false)),
+        (800, None),
+    ] {
+        clock.advance(Duration::from_millis(delta)).unwrap();
+        if let Some(open) = open {
+            source.update(|view| {
+                if open {
+                    view.state.open();
+                } else {
+                    view.state.close();
+                }
+            });
+        }
+        source
+            .try_render_retained_frame(&mut retained, &mut text, size, 1.)
+            .unwrap();
+        reused += source.frame_diagnostics().backend.scene_parts_reused;
+        for command in &retained.flattened().commands {
+            if let PaintCommand::Paragraph { request, transform } = command
+                && request.text.as_ref() == "Rename"
+            {
+                let scale = transform.as_coeffs()[0];
+                if (scale - 1.).abs() > 0.02 {
+                    assert_eq!(request.raster_scale_hint, Some(1.));
+                    checked_scaled_text = true;
+                }
+            }
+        }
+        build_presented_scene_scaled_layers(
+            &mut full,
+            &[source.placed_nodes()],
+            &mut text,
+            size.0,
+            size.1,
+            peniko::Color::WHITE,
+            1.,
+        );
+        let actual = renderer
+            .render_scene(&retained, [size.0, size.1], [1.; 4], true)
+            .unwrap();
+        let expected = renderer
+            .render_scene(&full, [size.0, size.1], [1.; 4], false)
+            .unwrap();
+        assert!(
+            actual == expected,
+            "retained pixels differ at {:?}",
+            source.frame_diagnostics()
+        );
+    }
+    assert!(reused > 0);
+    assert!(checked_scaled_text);
+    assert!(!source.view().state.is_open());
+}

@@ -64,3 +64,28 @@ fn public_frame_stats_correlate_runtime_work_and_clear_it_on_retained_frames() {
     assert_eq!(stats.scene_commands, scene.commands.len() as u64);
     assert!(stats.scene_reused);
 }
+
+#[test]
+fn measured_layout_schedules_one_followup_frame() {
+    #[derive(Default)]
+    struct Measured(Option<[f32; 2]>);
+    impl HostView for Measured {
+        fn show(&mut self, ui: &mut plico::UiContext<'_>) {
+            ui.column().width(80.).height(40.).children(|ui| {
+                self.0 = ui.layout_size();
+            });
+        }
+    }
+    let mut source = Source::new(Measured::default());
+    let mut text = TextContext::new();
+    let mut scene = Scene::new();
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+        .unwrap();
+    assert!(source.has_anim());
+    source
+        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+        .unwrap();
+    assert_eq!(source.view().0, Some([80., 40.]));
+    assert!(!source.has_anim());
+}

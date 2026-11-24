@@ -168,6 +168,16 @@ pub trait FrameSource {
     /// Borrowed `tcx` is used for text measurement (parley).
     fn build_frame(&mut self, tcx: &mut TextContext, width: u32, height: u32) -> Vec<PlacedNode>;
 
+    /// Build an owned node list, reporting declaration errors to callers that require a fresh frame.
+    fn try_build_frame(
+        &mut self,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PlacedNode>, FrameSourceError> {
+        Ok(self.build_frame(text, width, height))
+    }
+
     /// Encode the application scene. Sources may reuse retained scene commands
     /// during presentation-only animation, without rebuilding text or layout.
     fn paint_scene(
@@ -218,7 +228,7 @@ pub trait FrameSource {
     ) -> Result<(usize, f64, f64), FrameSourceError> {
         tcx.set_native_paragraph_scale(scale);
         let start = Instant::now();
-        let nodes = self.build_frame(tcx, width, height);
+        let nodes = self.try_build_frame(tcx, width, height)?;
         let build_ms = start.elapsed().as_secs_f64() * 1000.;
         let start = Instant::now();
         self.paint_scene(scene, &nodes, tcx, (width, height), scale);

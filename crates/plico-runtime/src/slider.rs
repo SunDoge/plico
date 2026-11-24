@@ -64,33 +64,6 @@ fn paint_color(rgb: u32, alpha: f32) -> PaintColor {
 }
 
 impl Adapter {
-    pub(super) fn range_owner(
-        &self,
-        engine: &Engine,
-        entity: Entity,
-    ) -> Option<(Entity, plico::SliderThumb)> {
-        let thumb = engine.node(entity)?.style.slider_thumb?;
-        let node_id = self.nodes.get(&entity)?.id;
-        let owner = *self.reverse.get(&self.tree.parent(node_id)?)?;
-        let owner_node = engine.node(owner)?;
-        (owner_node.kind == Kind::ValueControl
-            && owner_node.numeric.is_some_and(|range| range.high.is_some()))
-        .then_some((owner, thumb))
-    }
-
-    pub(super) fn range_thumb(
-        &self,
-        engine: &Engine,
-        owner: Entity,
-        thumb: plico::SliderThumb,
-    ) -> Option<Entity> {
-        engine.node(owner)?.children.iter().copied().find(|child| {
-            engine
-                .node(*child)
-                .is_some_and(|node| node.style.slider_thumb == Some(thumb))
-        })
-    }
-
     pub(super) fn align_sliders(&mut self, engine: &Engine) {
         for &entity in &self.slider_nodes {
             let Some(index) = self
@@ -271,7 +244,7 @@ impl Adapter {
                 (plico::SliderThumb::Minimum, range.value),
                 (plico::SliderThumb::Maximum, high),
             ] {
-                let Some(entity) = self.range_thumb(engine, owner, thumb) else {
+                let Some(entity) = engine.range_thumb(owner, thumb) else {
                     continue;
                 };
                 let at = track.position(range.fraction_of(value));
@@ -343,7 +316,7 @@ impl Adapter {
                     && pointer.button == Some(PointerButton::Primary);
                 let entity = if start {
                     let hit = self.hit(engine, pointer.position.x, pointer.position.y)?;
-                    if let Some((owner, _)) = self.range_owner(engine, hit) {
+                    if let Some((owner, _)) = engine.range_owner(hit) {
                         enabled(self, hit).then_some(owner)
                     } else {
                         // Ordinary composed value controls leave pointer input
@@ -377,6 +350,7 @@ impl Adapter {
                         buffer.edit(plico::InputEdit::ClearPreedit);
                     }
                     self.slider_drag = Some(entity);
+                    self.slider_pointer_anchor = None;
                     self.pressed = Some(entity);
                 }
                 if matches!(pointer.phase, PointerPhase::Cancel | PointerPhase::Leave) {
@@ -388,7 +362,8 @@ impl Adapter {
                     pointer.phase,
                     PointerPhase::Down | PointerPhase::Move | PointerPhase::Up
                 ) {
-                    let range = engine.node(entity)?.numeric?;
+                    let node = engine.node(entity)?;
+                    let range = node.numeric?;
                     let placed = &self.placed[self.placed_indices[&self.nodes[&entity].id]];
                     let vertical = range.vertical;
                     let length = if vertical {
@@ -404,7 +379,46 @@ impl Adapter {
                     } else {
                         point.x - placed.content_origin[0] as f64
                     };
-                    let t = track.fraction(point);
+                    let t = if let Some(grab_width) = node.style.slider_grab_width
+                        && range.high.is_none()
+                        && length > 0.
+                    {
+                        let half = f64::from(grab_width.min(length)) * 0.5;
+                        let length = f64::from(length);
+                        let coordinate = if vertical { length - point } else { point };
+                        let pointer_axis = if vertical {
+                            -pointer.position.y
+                        } else {
+                            pointer.position.x
+                        };
+                        if start {
+                            let value = range.fraction();
+                            let center = (value * length).clamp(half, length - half);
+                            let target = if (coordinate - center).abs() <= half {
+                                value
+                            } else {
+                                coordinate / length
+                            };
+                            let scale =
+                                self.visual_bounds(placed.node_id).map_or(length, |bounds| {
+                                    let span = if vertical {
+                                        bounds[3] - bounds[1]
+                                    } else {
+                                        bounds[2] - bounds[0]
+                                    };
+                                    f64::from(span).max(1.)
+                                });
+                            // Focus outlines can change the track's content origin
+                            // after Down. Keep the pointer's grabbed origin fixed.
+                            self.slider_pointer_anchor = Some((pointer_axis, target, scale));
+                        }
+                        self.slider_pointer_anchor
+                            .map_or(coordinate / length, |(origin, target, scale)| {
+                                target + (pointer_axis - origin) / scale
+                            })
+                    } else {
+                        track.fraction(point)
+                    };
                     let value = range.min + t.clamp(0., 1.) * (range.max - range.min);
                     if let Some(high) = range.high {
                         let low = engine.pending_value(entity).unwrap_or(range.value);
@@ -416,9 +430,8 @@ impl Adapter {
                             // are pressed past their value, choose maximum.
                             let thumb = usize::from(d_high < d_low || value > high);
                             self.slider_thumbs.insert(entity, thumb);
-                            self.focused = self
+                            self.focused = engine
                                 .range_thumb(
-                                    engine,
                                     entity,
                                     if thumb == 0 {
                                         plico::SliderThumb::Minimum
@@ -454,10 +467,11 @@ impl Adapter {
             }
             UiEvent::Key(key) if key.phase == KeyPhase::Down => {
                 let focused = self.focused.filter(|e| enabled(self, *e))?;
-                let (entity, focused_thumb) = self
-                    .range_owner(engine, focused)
+                let (entity, focused_thumb) = engine
+                    .range_owner(focused)
                     .map_or((focused, None), |(owner, thumb)| (owner, Some(thumb)));
-                let range = engine.node(entity)?.numeric?;
+                let node = engine.node(entity)?;
+                let range = node.numeric?;
                 let low = engine.pending_value(entity).unwrap_or(range.value);
                 let high = engine.pending_high_value(entity).or(range.high);
                 let thumb = focused_thumb.map_or_else(
@@ -473,11 +487,16 @@ impl Adapter {
                 }
                 let value = if thumb == 0 { low } else { high.unwrap_or(low) };
                 let delta = range.increment();
+                let large_step = if node.style.slider_grab_width.is_some() {
+                    (range.max - range.min) / 10.
+                } else {
+                    delta * 10.
+                };
                 let value = match key.key.as_str() {
                     "ArrowRight" | "ArrowUp" => value + delta,
                     "ArrowLeft" | "ArrowDown" => value - delta,
-                    "PageUp" => value + delta * 10.,
-                    "PageDown" => value - delta * 10.,
+                    "PageUp" => value + large_step,
+                    "PageDown" => value - large_step,
                     "Home" => range.min,
                     "End" => range.max,
                     " " | "Enter" => return Some(response()),

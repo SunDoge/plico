@@ -71,6 +71,7 @@ struct PreparedText {
     layout: std::rc::Rc<crate::text::GlyphLayout>,
     origin: [f64; 2],
     scale: f64,
+    vertical_ratio: f64,
     color: [f32; 4],
     clip: [f32; 4],
     clip_radii: [f32; 4],
@@ -140,9 +141,10 @@ impl PreparedDraw {
                         (w > 0. && h > 0.).then(|| {
                             Rect::new(
                                 text.origin[0] + (glyph.x + x) * text.scale,
-                                text.origin[1] + (glyph.y + y) * text.scale,
+                                text.origin[1] + (glyph.y + y) * text.scale * text.vertical_ratio,
                                 text.origin[0] + (glyph.x + x + w) * text.scale,
-                                text.origin[1] + (glyph.y + y + h) * text.scale,
+                                text.origin[1]
+                                    + (glyph.y + y + h) * text.scale * text.vertical_ratio,
                             )
                             .inflate(4., 4.)
                         })
@@ -328,6 +330,7 @@ impl PreparedScene {
                 let text = &data.text[*i];
                 let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
                 run.scale = text.scale;
+                run.vertical_ratio = text.vertical_ratio;
                 run.clip = Some(text.clip);
                 run.clip_radii = text.clip_radii;
                 run.clip_antialias = true;
@@ -504,7 +507,7 @@ fn quad(rect: Rect, radii: [f64; 4], transform: Affine, clip: Rect, index: usize
     Ok(q)
 }
 
-fn rectangular_quad(rect: Rect, transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
+fn axis_scales(transform: Affine, index: usize) -> Result<([f64; 2], [f64; 2])> {
     let [sx, b, c, sy, tx, ty] = transform.as_coeffs();
     if ![sx, b, c, sy, tx, ty].iter().all(|value| value.is_finite())
         || sx <= 0.
@@ -517,6 +520,10 @@ fn rectangular_quad(rect: Rect, transform: Affine, clip: Rect, index: usize) -> 
             "only positive axis-aligned scale and translation are supported",
         ));
     }
+    Ok(([sx, sy], [tx, ty]))
+}
+fn rectangular_quad(rect: Rect, transform: Affine, clip: Rect, index: usize) -> Result<Quad> {
+    let ([sx, sy], [tx, ty]) = axis_scales(transform, index)?;
     let mut q = Quad::new(
         [
             (rect.x0 * sx + tx) as f32,
@@ -1074,7 +1081,8 @@ impl Renderer {
                                 let mut blur =
                                     plico_renderer::filter::GaussianBlur::from_filter(filter)
                                         .ok_or_else(|| unsupported(index, "layer filter graph"))?;
-                                blur.sigma *= uniform(*transform, index)?.0 as f32;
+                                let ([sx, sy], _) = axis_scales(*transform, index)?;
+                                blur.sigma *= (sx * sy).sqrt() as f32;
                                 if !blur.sigma.is_finite() || blur.sigma > 64. {
                                     return Err(unsupported(
                                         index,
@@ -1360,13 +1368,18 @@ impl Renderer {
                     }
                     PaintCommand::Shader { effect, transform } => {
                         let [w, h] = effect.logical_size();
-                        let q = quad(
+                        let mut q = rectangular_quad(
                             Rect::new(0., 0., w as f64, h as f64),
-                            [0.; 4],
                             *transform,
                             clip,
                             index,
                         )?;
+                        q.clip = Some([
+                            clip.x0 as f32,
+                            clip.y0 as f32,
+                            clip.width() as f32,
+                            clip.height() as f32,
+                        ]);
                         draws.push(PreparedDraw::Effect(stash(
                             &mut payloads.effects,
                             (effect.clone(), q),
@@ -1413,13 +1426,14 @@ impl Renderer {
                     PaintCommand::Paragraph { request, transform } => {
                         #[cfg(all(target_os = "linux", feature = "system-text"))]
                         {
-                            let (scale, origin) = uniform(*transform, index)?;
+                            let ([scale, sy], origin) = axis_scales(*transform, index)?;
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let layout = self.paragraph_layout(request.clone(), density)?;
                             payloads.text.push(PreparedText {
                                 layout,
                                 origin,
                                 scale: scale / density,
+                                vertical_ratio: sy / scale,
                                 color: request.color.map(|c| c as f32 / 255.),
                                 clip: [
                                     clip.x0 as f32,
@@ -1433,9 +1447,10 @@ impl Renderer {
                         }
                         #[cfg(all(target_os = "windows", feature = "system-text"))]
                         {
-                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            let ([scale, sy], [x, y]) = axis_scales(*transform, index)?;
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let ratio = scale / density;
+                            let ry = sy / density;
                             // Four horizontal phases, snapped vertical baselines.
                             // Integer movement never creates a new raster entry.
                             let snapped_x = if ratio == 1. {
@@ -1454,9 +1469,9 @@ impl Renderer {
                                     let margin = 2. * scale + 2.;
                                     let estimate = Rect::new(
                                         x + f64::from(left) * scale,
-                                        y + f64::from(top) * scale,
+                                        y + f64::from(top) * sy,
                                         x + f64::from(right) * scale,
-                                        y + f64::from(bottom) * scale,
+                                        y + f64::from(bottom) * sy,
                                     )
                                     .inflate(margin, margin);
                                     let visible = !estimate.intersect(clip).is_zero_area();
@@ -1472,13 +1487,13 @@ impl Renderer {
                             let mut bounds: Option<Rect> = None;
                             for (image, origin) in images.iter() {
                                 let left = base_x + f64::from(origin[0]) * ratio;
-                                let top = if ratio == 1. { y.round() } else { y }
-                                    + f64::from(origin[1]) * ratio;
+                                let top = if ry == 1. { y.round() } else { y }
+                                    + f64::from(origin[1]) * ry;
                                 let rect = Rect::new(
                                     left,
                                     top,
                                     left + f64::from(image.width) * ratio,
-                                    top + f64::from(image.height) * ratio,
+                                    top + f64::from(image.height) * ry,
                                 );
                                 bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
                                 if rect.intersect(clip).is_zero_area() {
@@ -1494,25 +1509,26 @@ impl Renderer {
                         }
                         #[cfg(all(target_os = "macos", feature = "system-text"))]
                         {
-                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            let ([scale, sy], [x, y]) = axis_scales(*transform, index)?;
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let ratio = scale / density;
+                            let ry = sy / density;
                             let snapped_x = if ratio == 1. {
                                 (x * 4.).round() / 4.
                             } else {
                                 x
                             };
                             let base_x = if ratio == 1. { snapped_x.floor() } else { x };
-                            let base_y = if ratio == 1. { y.round() } else { y };
+                            let base_y = if ry == 1. { y.round() } else { y };
                             let paragraph = self.macos_paragraph_images(
                                 request.clone(),
                                 density,
                                 snapped_x - base_x,
                                 [
                                     (clip.x0 - base_x) / ratio,
-                                    (clip.y0 - base_y) / ratio,
+                                    (clip.y0 - base_y) / ry,
                                     (clip.x1 - base_x) / ratio,
-                                    (clip.y1 - base_y) / ratio,
+                                    (clip.y1 - base_y) / ry,
                                 ],
                             )?;
                             let bounds = paragraph.ink;
@@ -1521,7 +1537,7 @@ impl Renderer {
                                     clip.x0,
                                     clip.y0,
                                     clip.x1,
-                                    clip.y1.min(base_y + height * ratio).max(clip.y0),
+                                    clip.y1.min(base_y + height * ry).max(clip.y0),
                                 )
                             } else {
                                 clip
@@ -1531,20 +1547,19 @@ impl Renderer {
                             } else {
                                 Rect::new(
                                     snapped_x + bounds[0] * scale,
-                                    base_y + bounds[1] * scale,
+                                    base_y + bounds[1] * sy,
                                     snapped_x + bounds[2] * scale,
-                                    base_y + bounds[3] * scale,
+                                    base_y + bounds[3] * sy,
                                 )
                                 .inflate(3., 3.)
                             });
                             for (image, origin) in paragraph.images.iter() {
                                 let rect = Rect::new(
                                     base_x + f64::from(origin[0]) * ratio,
-                                    base_y + f64::from(origin[1]) * ratio,
+                                    base_y + f64::from(origin[1]) * ry,
                                     base_x
                                         + (f64::from(origin[0]) + f64::from(image.width)) * ratio,
-                                    base_y
-                                        + (f64::from(origin[1]) + f64::from(image.height)) * ratio,
+                                    base_y + (f64::from(origin[1]) + f64::from(image.height)) * ry,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(
@@ -1555,17 +1570,18 @@ impl Renderer {
                         }
                         #[cfg(all(target_arch = "wasm32", feature = "web"))]
                         {
-                            let (scale, [x, y]) = uniform(*transform, index)?;
+                            let ([scale, sy], [x, y]) = axis_scales(*transform, index)?;
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let ratio = scale / density;
+                            let ry = sy / density;
                             if let Some((image, offset)) =
                                 self.web_paragraph_image(request.clone(), density)?
                             {
                                 let rect = Rect::new(
                                     x + offset[0] * ratio,
-                                    y + offset[1] * ratio,
+                                    y + offset[1] * ry,
                                     x + (offset[0] + f64::from(image.width)) * ratio,
-                                    y + (offset[1] + f64::from(image.height)) * ratio,
+                                    y + (offset[1] + f64::from(image.height)) * ry,
                                 );
                                 let q = quad(rect, [0.; 4], Affine::IDENTITY, clip, index)?;
                                 draws.push(image_draw(

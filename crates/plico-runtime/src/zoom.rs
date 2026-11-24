@@ -116,6 +116,16 @@ impl FrameSource for ZoomSource {
         let (w, h) = self.viewport((width, height));
         self.inner.build_frame(text, w, h)
     }
+    fn try_build_frame(
+        &mut self,
+        text: &mut TextContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<PlacedNode>, plico_renderer::FrameSourceError> {
+        self.sync();
+        let (w, h) = self.viewport((width, height));
+        self.inner.try_build_frame(text, w, h)
+    }
     fn paint_scene(
         &mut self,
         scene: &mut Scene,

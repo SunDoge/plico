@@ -221,3 +221,5 @@ saving = 保存
 sidebar-workspace = 工作区
 sidebar-components = 组件
 sidebar-experiments = 实验
+
+sidebar-demos = 演示

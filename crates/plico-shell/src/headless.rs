@@ -7,7 +7,7 @@ use plico_renderer::Scene;
 
 use plico_renderer::layout::PlacedNode;
 use plico_renderer::scene;
-use plico_renderer::source::{FrameSource, FrameStats};
+use plico_renderer::source::{FrameSource, FrameSourceError, FrameStats};
 use plico_renderer::text::TextContext;
 
 /// Persistent timing state for a headless window.
@@ -35,9 +35,9 @@ impl HeadlessFrameProfiler {
         height: u32,
         scale_factor: f64,
         base_color: Color,
-    ) -> Vec<PlacedNode> {
+    ) -> Result<Vec<PlacedNode>, FrameSourceError> {
         let build_started = Instant::now();
-        let nodes = source.build_frame(text, width, height);
+        let nodes = source.try_build_frame(text, width, height)?;
         let build_frame_ms = build_started.elapsed().as_secs_f64() * 1_000.0;
 
         let scene_started = Instant::now();
@@ -58,7 +58,7 @@ impl HeadlessFrameProfiler {
             .update(build_frame_ms, scene_ms, 0.0, nodes.len());
         source.augment_frame_stats(&mut self.stats);
         source.push_frame_stats(&self.stats);
-        nodes
+        Ok(nodes)
     }
 
     /// Most recently accumulated headless timings.

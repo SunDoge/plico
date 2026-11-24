@@ -76,6 +76,8 @@ pub struct BackendStats {
     pub scroll_visits: usize,
     pub scene_builds: usize,
     pub scene_reuses: usize,
+    pub scene_parts_rebuilt: usize,
+    pub scene_parts_reused: usize,
     pub svg_parses: usize,
     /// Retained nodes visited by the last linear asset-cache liveness pass.
     pub resource_prune_visits: usize,
@@ -246,6 +248,7 @@ pub struct Adapter {
     pub(super) popup_open_last: Option<Entity>,
     pub(super) tips: tooltip::Tooltips,
     pub(super) slider_drag: Option<Entity>,
+    pub(super) slider_pointer_anchor: Option<(f64, f64, f64)>,
     /// Which thumb of a range slider the pointer/keyboard edits (0 low, 1 high).
     pub(super) slider_thumbs: HashMap<Entity, usize>,
     pub(super) focus_visible: bool,
@@ -263,6 +266,11 @@ pub struct Adapter {
     pub(super) slider_nodes: HashSet<Entity>,
     pub(super) shader_nodes: HashSet<Entity>,
     pub(super) tooltip_nodes: HashSet<Entity>,
+    pub(super) popup_motions: HashMap<Entity, crate::popup_motion::PopupMotion>,
+    pub(super) popup_motion_active: bool,
+    pub(super) popup_painted: HashSet<NodeId>,
+    pub(super) popup_placements: Vec<crate::popover::PopupPlacement>,
+    pub(super) effect_poses: HashMap<Entity, shader::SurfacePose>,
     pub(super) shaders: HashMap<Entity, shader::Surface>,
     pub(super) shader_scale: f64,
     pub(super) shader_motion_enabled: bool,
@@ -325,6 +333,7 @@ impl Default for Adapter {
             popup_open_last: None,
             tips: Default::default(),
             slider_drag: None,
+            slider_pointer_anchor: None,
             slider_thumbs: HashMap::new(),
             focus_visible: false,
             scroll_offsets: HashMap::new(),
@@ -341,6 +350,11 @@ impl Default for Adapter {
             slider_nodes: HashSet::new(),
             shader_nodes: HashSet::new(),
             tooltip_nodes: HashSet::new(),
+            popup_motions: HashMap::new(),
+            popup_motion_active: false,
+            popup_painted: HashSet::new(),
+            popup_placements: Vec::new(),
+            effect_poses: HashMap::new(),
             shaders: HashMap::new(),
             shader_scale: 1.,
             shader_motion_enabled: true,
@@ -879,6 +893,7 @@ impl Adapter {
             self.selection_dirty = false;
         }
         self.align_sliders(engine);
+        self.present_popovers(engine);
         self.update_shaders(engine, tcx);
         self.stats.changes |= changes
             & (plico::Changes::SEMANTICS

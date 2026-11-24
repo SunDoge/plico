@@ -8,6 +8,8 @@ pub struct TextRun<'a> {
     pub origin: [f64; 2],
     /// Presentation-only scale of retained native coverage; defaults to exact native size.
     pub scale: f64,
+    /// Vertical scale relative to the horizontal presentation scale.
+    pub vertical_ratio: f64,
     pub color: [f32; 4],
     pub clip: Option<[f32; 4]>,
     pub clip_radii: [f32; 4],
@@ -22,6 +24,7 @@ impl<'a> TextRun<'a> {
             layout,
             origin,
             scale: 1.,
+            vertical_ratio: 1.,
             color,
             clip: None,
             clip_radii: [0.; 4],

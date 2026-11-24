@@ -72,14 +72,19 @@ pub struct SliderResponse {
     value: f64,
     /// The upper thumb value for a range slider.
     high: Option<f64>,
+    pressed: bool,
 }
 impl SliderResponse {
-    pub(crate) const fn new(changed: bool, value: f64, high: Option<f64>) -> Self {
+    pub(crate) const fn new(changed: bool, value: f64, high: Option<f64>, pressed: bool) -> Self {
         Self {
             changed,
             value,
             high,
+            pressed,
         }
+    }
+    pub const fn pressed(self) -> bool {
+        self.pressed
     }
     pub const fn changed(self) -> bool {
         self.changed

@@ -70,13 +70,31 @@ pub fn resolve(node: &PlacedNode, axis: ScrollAxis) -> Option<ResolvedScrollbarG
     let track_thickness = f64::from(style.track_thickness).clamp(0.0, cross);
     let thumb_thickness = f64::from(style.thumb_thickness).clamp(0.0, track_thickness);
     let cross_margin = (track_thickness - thumb_thickness) * 0.5;
-    let end_margin = f64::from(style.end_margin).clamp(0.0, main * 0.5);
+    // MyGO scrollBars leaves the shared corner clear except for 3 DIPs.
+    let other = 1 - index;
+    let corner = if node.scroll.scrollable[other] && node.scroll.range[other] > 0.5 {
+        (f64::from(style.track_thickness) - 3.).clamp(0., main)
+    } else {
+        0.
+    };
+    let track_length = main - corner;
+    let end_margin = f64::from(style.end_margin).clamp(0.0, track_length * 0.5);
     let track = match axis {
-        ScrollAxis::Horizontal => Rect::new(port.x0, port.y1 - track_thickness, port.x1, port.y1),
-        ScrollAxis::Vertical => Rect::new(port.x1 - track_thickness, port.y0, port.x1, port.y1),
+        ScrollAxis::Horizontal => Rect::new(
+            port.x0,
+            port.y1 - track_thickness,
+            port.x1 - corner,
+            port.y1,
+        ),
+        ScrollAxis::Vertical => Rect::new(
+            port.x1 - track_thickness,
+            port.y0,
+            port.x1,
+            port.y1 - corner,
+        ),
     };
     let range = f64::from(node.scroll.range[index]);
-    let inner = (main - 2.0 * end_margin).max(0.0);
+    let inner = (track_length - 2.0 * end_margin).max(0.0);
     let length = (inner * main / (main + range))
         .max(f64::from(style.min_thumb_length))
         .clamp(0.0, inner);
@@ -146,17 +164,13 @@ pub fn hit(node: &PlacedNode, point: Point) -> Option<ScrollbarTarget> {
 ///
 /// Returns zero when no draggable track remains.
 pub fn drag_ratio(node: &PlacedNode, axis: ScrollAxis) -> f64 {
-    let Some(thumb) = thumb(node, axis) else {
-        return 0.0;
+    let Some(geometry) = resolve(node, axis) else {
+        return 0.;
     };
     let index = usize::from(axis == ScrollAxis::Vertical);
-    let viewport = match axis {
-        ScrollAxis::Horizontal => node.scroll.port[2] - node.scroll.port[0],
-        ScrollAxis::Vertical => node.scroll.port[3] - node.scroll.port[1],
-    } as f64;
-    let length = match axis {
-        ScrollAxis::Horizontal => thumb.width(),
-        ScrollAxis::Vertical => thumb.height(),
+    let (viewport, length) = match axis {
+        ScrollAxis::Horizontal => (geometry.track.width(), geometry.thumb.width()),
+        ScrollAxis::Vertical => (geometry.track.height(), geometry.thumb.height()),
     };
     let style = node.paint.scrollbar_style();
     let end_margin = f64::from(style.end_margin).clamp(0.0, viewport * 0.5);
@@ -243,6 +257,21 @@ mod tests {
                 part: ScrollbarPart::Thumb
             })
         );
+    }
+
+    #[test]
+    fn two_axes_reserve_the_shared_corner() {
+        let mut n = node(900.);
+        n.scroll.scrollable = [true, true];
+        n.scroll.range = [900.; 2];
+        n.scroll.offset = [900.; 2];
+        let vertical = resolve(&n, ScrollAxis::Vertical).unwrap();
+        let horizontal = resolve(&n, ScrollAxis::Horizontal).unwrap();
+        assert_eq!(vertical.track.y1, 91.);
+        assert_eq!(horizontal.track.x1, 91.);
+        assert_eq!(vertical.thumb.y1, 89.);
+        assert_eq!(horizontal.thumb.x1, 89.);
+        assert_eq!(drag_ratio(&n, ScrollAxis::Vertical), 900. / 63.);
     }
 
     #[test]

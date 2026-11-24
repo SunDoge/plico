@@ -27,6 +27,8 @@ pub struct Effects {
     pub energy: f64,
     pub glow: f64,
     pub hue: f64,
+    #[serde(default)]
+    pub controls: GlassControls,
 }
 
 impl Default for Effects {
@@ -34,15 +36,121 @@ impl Default for Effects {
         Self {
             paused: false,
             frost: 0.55,
-            glass_style: "custom".into(),
+            glass_style: "lens".into(),
             clarity: 0.5,
             bend: 18.,
             sheen: 0.8,
             energy: 0.6,
             glow: 0.7,
             hue: 0.15,
+            controls: Default::default(),
         }
     }
+}
+
+#[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct GlassControls {
+    pub tab: usize,
+    pub checked: bool,
+    pub enabled: bool,
+    pub level: f64,
+    pub applied: bool,
+    pub confirmed: bool,
+    pub mode: usize,
+    menu: PopoverState,
+    popover: PopoverState,
+    select: PopoverState,
+}
+
+#[component]
+fn glass_controls(cx: &mut UiContext, state: &mut GlassControls, paused: bool) {
+    use plico::widgets::liquid::{self, ActionState};
+    liquid::card(cx).width_percent(100.).children(|cx| {
+        row(cx).align(Align::Center).gap(12).children(|cx| {
+            text(cx, "Liquid controls").font_size(18).weight(650);
+            liquid::badge_with_speed(cx, "Live", 52., if paused { 0. } else { 0.4 });
+        });
+        liquid::tabs(
+            cx,
+            &mut state.tab,
+            &["Overview", "Details", "Activity"],
+            88.,
+        );
+        row(cx)
+            .wrap(true)
+            .align(Align::Center)
+            .gap(12)
+            .children(|cx| {
+                liquid::glass_checkbox(cx, "Show labels", &mut state.checked);
+                liquid::glass_switch(cx, "Highlight", &mut state.enabled);
+                liquid::range_slider(cx, "Intensity", &mut state.level, 0.0..=100., 1., 164.);
+            });
+        row(cx)
+            .wrap(true)
+            .align(Align::Center)
+            .gap(8)
+            .children(|cx| {
+                if liquid::action_button(
+                    cx,
+                    if state.applied { "Applied" } else { "Apply" },
+                    if state.applied {
+                        ActionState::Success
+                    } else {
+                        ActionState::Idle
+                    },
+                ) {
+                    state.applied = true;
+                }
+                if liquid::slide_to_confirm(
+                    cx,
+                    if state.confirmed {
+                        "Confirmed"
+                    } else {
+                        "Slide to confirm"
+                    },
+                    if state.confirmed {
+                        ActionState::Success
+                    } else {
+                        ActionState::Idle
+                    },
+                    204.,
+                ) {
+                    state.confirmed = true;
+                }
+                liquid::button_group(cx, false).children(|cx| {
+                    if liquid::group_item(cx, "Reset action") {
+                        state.applied = false;
+                    }
+                    liquid::group_separator(cx, false);
+                    if liquid::group_item(cx, "Reset slide") {
+                        state.confirmed = false;
+                    }
+                });
+            });
+        row(cx).wrap(true).gap(10).children(|cx| {
+            liquid::select(
+                cx,
+                &mut state.select,
+                "Mode",
+                &mut state.mode,
+                &[
+                    SelectOption::new("regular", 0, "Regular glass"),
+                    SelectOption::new("clear", 1, "Clear glass"),
+                ],
+            )
+            .width(150.)
+            .response();
+            liquid::dropdown_menu(cx, &mut state.menu, "Actions").children(|cx| {
+                if menu_item(cx, "Reset intensity").clicked() {
+                    state.level = 0.;
+                }
+            });
+            liquid::popover(cx, &mut state.popover, "Selection details").children(|cx| {
+                text!(cx, "Intensity: {:.0}%", state.level);
+            });
+        });
+    });
 }
 
 #[component]
@@ -67,6 +175,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                 ("Custom", "custom"),
                 ("Regular", "regular"),
                 ("Clear", "clear"),
+                ("Lens", "lens"),
             ] {
                 ui.keyed(value, |ui| {
                     let control = button(ui).text(name).radius(18.).height(36.)
@@ -91,29 +200,34 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                     clarity: state.clarity as f32,
                     ..LiquidGlass::clear()
                 },
+                "lens" => LiquidGlass::lens(),
                 _ => LiquidGlass::default(),
             };
-            // A busy, saturated backdrop makes the pane's blur and rim refraction
+            // Contrasting silhouettes make the pane's blur and rim refraction
             // visible; the shader reads everything painted before it.
             // Continuous corners carry a longer shoulder than circular arcs.
             // Use the pane token rather than the old circular 18-DIP radius so
             // the large surface reads rounded instead of almost rectangular.
             column(ui).position(Position::Relative).width_percent(100.).height(300.).shrink(0.).clip(true)
-                .radius(24.).corner_smoothing(1.).background(Color::Literal(0x121826)) + |ui|
+                .radius(24.).corner_smoothing(1.).background(Color::Literal(0x3c4045)) + |ui|
             {
                 column(ui).absolute(-50., -70.).width(280.).height(280.).radius(140.)
-                    .background(Color::Literal(0xf97316)) + |_ui|
+                    .background(Color::Literal(0xcbbfb3)) + |_ui|
                 {};
                 column(ui).absolute(150., 30.).width(240.).height(240.).radius(120.)
-                    .background(Color::Literal(0x38bdf8)) + |_ui|
+                    .background(Color::Literal(0x96aaa9)) + |_ui|
                 {};
                 column(ui).absolute(300., 160.).width(280.).height(280.).radius(140.)
-                    .background(Color::Literal(0xa855f7)) + |_ui|
+                    .background(Color::Literal(0xa4a2af)) + |_ui|
                 {};
-                column(ui).absolute(0., 0.).width_percent(100.).height_percent(100.).padding(28).gap(4)
-                    .radius(24.).corner_smoothing(1.).material(LiquidGlass {
+                let pane = column(ui).absolute(0., 0.);
+                let pane = if state.glass_style == "lens" {
+                    pane.inset(24.)
+                } else {
+                    pane.width_percent(100.).height_percent(100.)
+                };
+                pane.padding(28).gap(4).radius(24.).corner_smoothing(1.).material(LiquidGlass {
                     frost: state.frost as f32,
-                    tint_opacity: if state.glass_style == "custom" { 0.55 } else { 0. },
                     refraction: state.bend as f32 / 24.,
                     rim: state.sheen as f32,
                     animated: !state.paused,
@@ -224,6 +338,7 @@ pub fn page(ui: &mut UiContext, state: &mut Effects) {
                     };
                 };
             };
+            glass_controls(ui, &mut state.controls, state.paused);
             text(ui, "WGSL · injected clock · read_backdrop for the pane · MyGO liquid-glass, chat-glow and wind")
                 .font_size(11).color(Color::Muted);
         }
