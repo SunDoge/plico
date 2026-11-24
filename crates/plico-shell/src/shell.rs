@@ -125,6 +125,14 @@ impl Shell {
         event_loop: &dyn ActiveEventLoop,
         options: &WindowOptions,
     ) -> crate::Result<Shell> {
+        Self::create_with_attributes(event_loop, options, |attrs| attrs)
+    }
+
+    pub(crate) fn create_with_attributes(
+        event_loop: &dyn ActiveEventLoop,
+        options: &WindowOptions,
+        configure: impl FnOnce(WindowAttributes) -> WindowAttributes,
+    ) -> crate::Result<Shell> {
         let options = options.clone().normalized();
         let corner_radius =
             crate::window_frame::client_corner_radius(options.corner_radius, options.decorations);
@@ -233,7 +241,7 @@ impl Shell {
 
         let window: Arc<dyn Window> = Arc::from(
             event_loop
-                .create_window(attrs)
+                .create_window(configure(attrs))
                 .context(crate::error::CreateWindowSnafu)?,
         );
         let physical_size = window.surface_size();

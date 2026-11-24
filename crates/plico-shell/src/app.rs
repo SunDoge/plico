@@ -40,6 +40,8 @@ use plico_renderer::source::{
 };
 use plico_renderer::style::CursorStyle;
 
+#[cfg(target_os = "macos")]
+mod appkit_menu;
 mod effects;
 mod event;
 mod event_translate;
@@ -49,6 +51,8 @@ mod ime;
 mod input;
 mod lifecycle;
 mod multi_window;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+mod popup_window;
 mod redraw;
 mod window_event;
 
@@ -263,6 +267,8 @@ impl ApplicationHandler for App {
 /// One winit event loop routing events to independent native windows.
 /// Each window owns its own frame source, input state, surface and renderer.
 struct MultiWindowApp {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    popup: Option<popup_window::Popup>,
     pending: Vec<App>,
     windows: HashMap<WindowId, App>,
     /// Windows intentionally closed to the tray on platforms such as Wayland,
@@ -375,29 +381,7 @@ pub fn run_window_with_options(
     source: Box<dyn FrameSource>,
     options: WindowOptions,
 ) -> crate::Result<()> {
-    // Profiling builds install the tracing subscriber (Chrome/Perfetto via
-    // PLICO_TRACE_FILE, stderr otherwise); the guard flushes on drop, which
-    // is why it lives for the whole event loop.
-    let _tracing = crate::telemetry::init_tracing();
-    let _telemetry_export = crate::telemetry::ExportOnDrop;
-    let event_loop: EventLoop = EventLoop::new().context(crate::error::CreateEventLoopSnafu)?;
-    event_loop.set_control_flow(ControlFlow::Wait);
-    let proxy = event_loop.create_proxy();
-    let wake: WakeCallback = std::sync::Arc::new(move || proxy.wake_up());
-    let mut app = App::with_options(source, options);
-    app.set_wake_callback(wake);
-    let startup_error = app.startup_error.clone();
-    event_loop
-        .run_app(app)
-        .context(crate::error::RunEventLoopSnafu)?;
-    if let Some(error) = startup_error
-        .lock()
-        .expect("startup error mutex poisoned")
-        .take()
-    {
-        return Err(error);
-    }
-    Ok(())
+    run_windows(vec![(source, options)]).map(|_| ())
 }
 
 /// Run independent frame sources as native windows on one platform event loop.
