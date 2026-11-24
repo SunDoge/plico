@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6](https://github.com/SunDoge/plico/compare/v0.4.5...v0.4.6) - 2026-11-24
+
+### Added
+
+- *(preview)* record scripted preview scenarios to MP4
+- *(ui)* add Liquid Glass components and retained motion
+- *(shell)* add platform context menu presentation
+
 ## [0.4.5](https://github.com/SunDoge/plico/compare/v0.4.4...v0.4.5) - 2026-11-23
 
 ### Added
