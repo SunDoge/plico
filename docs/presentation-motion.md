@@ -84,6 +84,29 @@ MyGO `ui/runtime.go` 的 `repaintFrame` 和 `ui/repaint.go` 的局部重绘是�
 `retained_popup_fragments_match_full_encoding_through_reversal` 对比 wgpu 增量与完整
 编码，覆盖背景折射、打开中关闭、退场中重开和最终卸载。
 
+## 程序化动效
+
+`cx.loop_phases` 用同一个时钟提供循环编号和阶段。把同一阶段传给多个控件，它们就能在
+同一帧启动。它只在阶段边界申请唤醒。需要连续插值的属性可以继续用 `cx.timeline` 或
+`cx.spring`。动效时间来自宿主，测试和录制可以使用虚拟时钟。
+
+```rust,ignore
+let pulse = cx
+    .loop_phases(
+        "demo",
+        Duration::from_millis(300),
+        &[Duration::from_millis(2800), Duration::from_millis(950)],
+    )
+    .filter(|phase| phase.index == 0)
+    .map(|phase| phase.cycle);
+let response = liquid::clear_button_with_pulse(cx, "Play", play_icon, pulse);
+```
+
+`clear_button_with_pulse` 在脉冲令牌变化时播放一次按压反馈，复用真实指针的玻璃和文字
+弹簧。`response.clicked` 表示实际按钮激活，`response.pulse_finished` 表示演示按压结束。
+自定义控件可用 `cx.pulse` 指定时长，弹层可以用 `PopoverState::open_preview()` 播放
+展开效果并保留当前焦点。这些视觉演示都可以在普通应用运行和 JSON 预览录制中调用。
+
 ## 验证与工作量
 
 ```sh

@@ -37,6 +37,13 @@ impl Adapter {
             .find(|e| engine.node(*e).is_some_and(|n| n.kind == Kind::Dialog))
     }
     pub(super) fn modal_allows(&self, engine: &Engine, entity: Entity) -> bool {
+        if self
+            .preview_popups
+            .iter()
+            .any(|&root| contains(engine, root, entity))
+        {
+            return false;
+        }
         let active = self.modal_stack.iter().rev().find_map(|(root, _)| {
             let n = engine.node(*root)?;
             (!(n.style.popup_anchor.is_some()
@@ -60,13 +67,25 @@ impl Adapter {
         })
     }
     pub(super) fn sync_modal_focus(&mut self, engine: &Engine) {
+        self.preview_popups.clear();
         let roots: Vec<_> = engine
             .node(engine.root())
             .unwrap()
             .children
             .iter()
             .copied()
-            .filter(|e| engine.node(*e).is_some_and(|n| n.kind == Kind::Overlay))
+            .filter(|&entity| {
+                let Some(node) = engine
+                    .node(entity)
+                    .filter(|node| node.kind == Kind::Overlay)
+                else {
+                    return false;
+                };
+                if node.style.popup_preview {
+                    self.preview_popups.push(entity);
+                }
+                !node.style.popup_preview
+            })
             .collect();
         let shared = self
             .modal_stack

@@ -2,6 +2,18 @@
 use crate::prelude::*;
 use std::ops::RangeInclusive;
 
+const fn glass_spring(omega: f64, damping_ratio: f64, precision: f64) -> SpringOptions {
+    SpringOptions {
+        duration: std::time::Duration::ZERO,
+        bounce: 0.,
+        mass: 1.,
+        stiffness: omega * omega,
+        damping: 2. * omega * damping_ratio,
+        precision,
+        velocity: 0.,
+    }
+}
+
 pub fn card<'u, 'e>(cx: &'u mut UiContext<'e>) -> crate::Layout<'u, 'e> {
     column(cx)
         .padding(20)
@@ -48,21 +60,85 @@ pub fn button<'u, 'e, 's>(cx: &'u mut UiContext<'e>, label: &'s str) -> crate::B
 
 /// The XL clear button used by the reference Play demo.
 pub fn clear_button(cx: &mut UiContext, label: &str, icon: &crate::SvgAsset) -> bool {
-    button_base(cx, label)
+    clear_button_with_pulse(cx, label, icon, None).clicked
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClearButtonResponse {
+    pub clicked: bool,
+    /// The scripted press released during this declaration.
+    pub pulse_finished: bool,
+}
+
+/// Changing the pulse token plays one visual press using the same springs as
+/// pointer input. A pulse preserves focus and never activates the button.
+pub fn clear_button_with_pulse(
+    cx: &mut UiContext,
+    label: &str,
+    icon: &crate::SvgAsset,
+    pulse: Option<u64>,
+) -> ClearButtonResponse {
+    const HEIGHT: f32 = 64.;
+    let button = button_base(cx, label)
         .position(Position::Relative)
-        .height(64.)
+        .height(HEIGHT)
         .radius(32.)
         .padding_x(32)
-        .gap(10)
         .align(Align::Center)
         .justify(Justify::Center)
         .children(|cx| {
-            LiquidGlass::regular().show_face(cx, 32., crate::materials::GlassFace::ClearButton);
-            svg(cx, icon).size(20., 20.);
-            text(cx, label).font_size(18).weight(600);
-        })
-        .response
-        .clicked()
+            let pulse = cx.pulse(
+                "glass button pulse",
+                pulse,
+                std::time::Duration::from_millis(160),
+            );
+            // GlassLayer's three optical springs and its uniform host scale.
+            // The shader takes the final half-extent growth in DIP, so the
+            // logical button box can stay fixed throughout the gesture.
+            let [width, height] = cx.layout_size().unwrap_or([128., HEIGHT]);
+            let max_growth = 12. / width.max(1.);
+            let reduced = cx.display_preferences().reduce_motion;
+            let hover = !reduced && (cx.hovered() || pulse.active);
+            let down = !reduced && (cx.pressed() || pulse.active);
+            let spring = |cx: &mut UiContext, key, target, omega, damping| {
+                if reduced {
+                    cx.jump(key, 0.)
+                } else {
+                    cx.spring(key, target, glass_spring(omega, damping, 0.0005))
+                }
+            };
+            let press = spring(cx, "glass press", f32::from(down), 16., 0.6);
+            let x = spring(cx, "glass width", f32::from(hover), 17., 0.42);
+            let y = spring(cx, "glass height", f32::from(hover), 12., 0.34);
+            let scale_target = if down { 0.08 } else { 0.04 * f32::from(hover) };
+            let scale = 1. + spring(cx, "glass scale", scale_target.min(max_growth), 16., 0.6);
+            let press_growth = 0.5 * 0.08_f32.min(max_growth) * press.clamp(-0.12, 1.15);
+            let hover_growth = 0.08 * height;
+            LiquidGlass::regular().show_face(
+                cx,
+                32.,
+                crate::materials::GlassFace::ClearButton {
+                    growth: [
+                        width * press_growth + hover_growth * x,
+                        height * press_growth + hover_growth * y,
+                    ],
+                    press,
+                },
+            );
+            row(cx)
+                .gap(10)
+                .align(Align::Center)
+                .scale(scale, scale)
+                .children(|cx| {
+                    svg(cx, icon).size(20., 20.);
+                    text(cx, label).font_size(18).weight(600).no_wrap();
+                });
+            pulse.finished
+        });
+    ClearButtonResponse {
+        clicked: button.response.clicked(),
+        pulse_finished: button.inner,
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -128,20 +204,8 @@ pub fn action_button(cx: &mut UiContext, label: &str, state: ActionState) -> boo
             let separation = if reduced {
                 f32::from(apart)
             } else {
-                cx.spring(
-                    "drop",
-                    f32::from(apart),
-                    SpringOptions {
-                        duration: std::time::Duration::ZERO,
-                        bounce: 0.,
-                        mass: 1.,
-                        stiffness: omega * omega,
-                        damping: 2. * zeta * omega,
-                        precision: 0.0005,
-                        velocity: 0.,
-                    },
-                )
-                .clamp(0., 1.06)
+                cx.spring("drop", f32::from(apart), glass_spring(omega, zeta, 0.0005))
+                    .clamp(0., 1.06)
             };
             let now = cx.now();
             let last = cx.state(|| (state, None::<std::time::Duration>));
@@ -597,19 +661,7 @@ pub fn tabs(cx: &mut UiContext, selected: &mut usize, labels: &[&str], tab_width
                 if preferences.reduce_motion {
                     target
                 } else {
-                    cx.spring(
-                        key,
-                        target,
-                        SpringOptions {
-                            duration: std::time::Duration::ZERO,
-                            bounce: 0.,
-                            mass: 1.,
-                            stiffness: omega * omega,
-                            damping: 2. * damping * omega,
-                            precision: 0.001,
-                            velocity: 0.,
-                        },
-                    )
+                    cx.spring(key, target, glass_spring(omega, damping, 0.001))
                 }
             };
             let following = held && dragging;
@@ -802,19 +854,7 @@ fn toggle(
                 if reduced {
                     target
                 } else {
-                    cx.spring(
-                        key,
-                        target,
-                        SpringOptions {
-                            duration: std::time::Duration::ZERO,
-                            bounce: 0.,
-                            mass: 1.,
-                            stiffness: omega * omega,
-                            damping: 2. * omega * damping,
-                            precision: 0.0005,
-                            velocity: 0.,
-                        },
-                    )
+                    cx.spring(key, target, glass_spring(omega, damping, 0.0005))
                 }
             };
             let on = if is_switch {
@@ -1009,19 +1049,7 @@ pub fn range_slider(
                 if reduced {
                     target
                 } else {
-                    cx.spring(
-                        key,
-                        target,
-                        SpringOptions {
-                            duration: std::time::Duration::ZERO,
-                            bounce: 0.,
-                            mass: 1.,
-                            stiffness: omega * omega,
-                            damping: 2. * omega * damping,
-                            precision: 0.0005,
-                            velocity: 0.,
-                        },
-                    )
+                    cx.spring(key, target, glass_spring(omega, damping, 0.0005))
                 }
             };
             let shown = spring(cx, "brightness", fraction, 30., 1.).clamp(0., 1.);
@@ -1240,19 +1268,7 @@ fn slide(
             if preferences.reduce_motion {
                 target
             } else {
-                cx.spring(
-                    key,
-                    target,
-                    SpringOptions {
-                        duration: std::time::Duration::ZERO,
-                        mass: 1.,
-                        bounce: 0.,
-                        stiffness: omega * omega,
-                        damping: 2. * omega * damping,
-                        precision: 0.01,
-                        velocity: 0.,
-                    },
-                )
+                cx.spring(key, target, glass_spring(omega, damping, 0.01))
             }
         };
         let shown = spring(

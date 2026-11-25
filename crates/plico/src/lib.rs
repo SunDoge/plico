@@ -37,8 +37,8 @@ pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
 pub use motion::OpticalSpring;
 pub use motion::{Animation, SpringOptions};
 pub use timeline::{
-    Placement, REPEAT_FOREVER, Timeline, TimelineOffset, TimelineOptions, Tween, after_previous,
-    at_label, at_time, with_previous,
+    LoopPhase, Placement, Pulse, REPEAT_FOREVER, Timeline, TimelineOffset, TimelineOptions, Tween,
+    after_previous, at_label, at_time, with_previous,
 };
 mod visibility;
 pub use visibility::VisibleRegion;

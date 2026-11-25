@@ -9,12 +9,24 @@ static POPUP_NECK: crate::ShaderAsset =
 #[serde(default)]
 pub struct ModalState {
     open: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    preview: bool,
     mounted: bool,
     closing_until_ms: Option<u64>,
 }
 impl ModalState {
     pub fn open(&mut self) {
         self.open = true;
+        self.preview = false;
+    }
+    /// Show an anchored popup for a visual demonstration without an input scope.
+    pub fn open_preview(&mut self) {
+        self.open = true;
+        self.preview = true;
+    }
+    /// Whether the anchored popup is in its visual-only presentation.
+    pub fn is_preview(&self) -> bool {
+        self.preview
     }
     pub fn close(&mut self) {
         self.open = false;
@@ -229,6 +241,7 @@ impl<'s> Modal<'_, '_, 's> {
             1.
         };
         if !state.mounted {
+            state.preview = false;
             return ModalResponse {
                 inner: None,
                 dismissed: false,
@@ -249,6 +262,8 @@ impl<'s> Modal<'_, '_, 's> {
         let style = Style {
             overlay: true,
             popup_anchor: anchor,
+            popup_preview: anchor.is_some() && state.preview,
+            semantic_hidden: anchor.is_some() && state.preview,
             liquid_popup: liquid_list,
             popup_over_anchor: over_center,
             popup_motion: animate_list,
@@ -591,7 +606,7 @@ impl<'s> Popover<'_, '_, 's> {
             gap: 8.,
             role: (self.modal.panel_role == Some(crate::WidgetRole::ListBox))
                 .then_some(crate::WidgetRole::ComboBox),
-            expanded: Some(self.modal.state.is_open()),
+            expanded: Some(self.modal.state.is_open() && !self.modal.state.is_preview()),
             disabled,
             styled_button: trigger_text.is_some(),
             font_size: metrics.font_size,
@@ -708,7 +723,7 @@ impl<'s> Popover<'_, '_, 's> {
             },
         );
         if clicked && !disabled {
-            if self.modal.state.is_open() {
+            if self.modal.state.is_open() && !self.modal.state.is_preview() {
                 self.modal.state.close();
             } else {
                 self.modal.state.open();

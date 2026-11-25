@@ -98,7 +98,7 @@ pub(crate) enum GlassFace {
     MorphPanel,
     SlideThumb(f32),
     ControlLens(f32),
-    ClearButton,
+    ClearButton { growth: [f32; 2], press: f32 },
     Group(bool),
 }
 
@@ -220,9 +220,7 @@ impl LiquidGlass {
                 f32::from(cx.hovered_within()),
                 f32::from(cx.engine.pressed_within(cx.parent)),
             ]),
-            GlassFace::Trigger | GlassFace::ClearButton => {
-                Some([f32::from(cx.hovered()), f32::from(cx.pressed())])
-            }
+            GlassFace::Trigger => Some([f32::from(cx.hovered()), f32::from(cx.pressed())]),
             _ => None,
         };
         self.show_surface(cx, radius, 0., feedback, None, Some(part));
@@ -255,7 +253,7 @@ impl LiquidGlass {
                     | GlassFace::SelectPanel
                     | GlassFace::MorphPanel,
                 ) => 5.,
-                Some(GlassFace::ClearButton | GlassFace::Group(_)) => 6.,
+                Some(GlassFace::ClearButton { .. } | GlassFace::Group(_)) => 6.,
                 Some(GlassFace::SlideThumb(_)) => 3.,
                 Some(GlassFace::ControlLens(_)) => 7.,
                 None => match options.style {
@@ -266,14 +264,19 @@ impl LiquidGlass {
                 },
             };
             let feedback = feedback.filter(|_| options.interactive);
-            let amounts = feedback.unwrap_or([0.; 2]);
+            let amounts = match face {
+                Some(GlassFace::ClearButton { press, .. }) => [0., press],
+                _ => feedback.unwrap_or([0.; 2]),
+            };
             let optics = droplet.unwrap_or_default();
             // A fixed two-DIP canvas margin encloses MyGO's 1.1/0.45-DIP growth.
             let outset = if matches!(face, Some(GlassFace::MorphPanel)) || droplet.is_some() {
                 44.
             } else if matches!(
                 face,
-                Some(GlassFace::ClearButton | GlassFace::SlideThumb(_) | GlassFace::Group(_))
+                Some(
+                    GlassFace::ClearButton { .. } | GlassFace::SlideThumb(_) | GlassFace::Group(_)
+                )
             ) {
                 36.
             } else if matches!(face, Some(GlassFace::SelectPanel)) {
@@ -302,11 +305,13 @@ impl LiquidGlass {
                     GlassStyle::Clear | GlassStyle::Lens => options.frost / 0.42,
                 }
             };
-            let face_geometry = if matches!(face, Some(GlassFace::Card)) {
-                let [width, height] = cx.viewport_size();
-                [width * 0.065, height * 0.065, 0.]
-            } else {
-                optics.shape
+            let face_geometry = match face {
+                Some(GlassFace::Card) => {
+                    let [width, height] = cx.viewport_size();
+                    [width * 0.065, height * 0.065, 0.]
+                }
+                Some(GlassFace::ClearButton { growth: [x, y], .. }) => [x, y, 0.],
+                _ => optics.shape,
             };
             let surface = shader(cx, &LIQUID_GLASS)
                 .prefilter_backdrop(max_sigma)

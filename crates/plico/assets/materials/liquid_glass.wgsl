@@ -215,11 +215,14 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let clear_button = plico.values[3].y > 5.5 && plico.values[3].y < 6.5;
     let control_lens = plico.values[3].y > 6.5;
     let group = clear_button && plico.values[5].w < -0.5;
-    let grow = select(
+    var grow = select(
             vec2f(1.1, 0.45) * pressed,
             vec2f(3.9 * hover + 4.5 * pressed, 4.4 * hover + 2.56 * pressed),
             clear_button,
         );
+    if clear_button && !group {
+        grow = plico.values[6].yz;
+    }
     let inset = plico.values[4].zw - grow;
     let pane_size = size - 2.0 * inset;
     let morph = plico.values[5].z > 1.5;

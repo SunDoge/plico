@@ -158,6 +158,11 @@ impl Text<'_, '_, '_> {
         self.inner.style.text_ellipsis = enabled;
         self
     }
+    /// Keep text at its intrinsic width and preserve explicit line breaks.
+    pub(crate) fn no_wrap(mut self) -> Self {
+        self.inner.style.text_no_wrap = true;
+        self
+    }
     #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);

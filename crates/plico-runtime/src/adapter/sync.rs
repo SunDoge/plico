@@ -586,7 +586,7 @@ pub(crate) fn make_paint(
             };
             (style.border_width, color)
         }),
-        wrap_text: !style.text_ellipsis,
+        wrap_text: !style.text_ellipsis && !style.text_no_wrap,
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
     };
