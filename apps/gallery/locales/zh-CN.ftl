@@ -223,3 +223,6 @@ sidebar-components = 组件
 sidebar-experiments = 实验
 
 sidebar-demos = 演示
+
+liquid-glass-showcase = 液态玻璃展示
+liquid-glass-autoplay = 自动播放动画

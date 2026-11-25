@@ -282,7 +282,10 @@ pub struct GalleryHost {
 impl plico_desktop::HostView for GalleryHost {
     fn show(&mut self, cx: &mut UiContext) {
         #[cfg(not(target_arch = "wasm32"))]
-        if self.app.router.show(super::Page::LiquidGlass) {
+        if matches!(
+            self.app.router.current(),
+            super::Page::LiquidGlass | super::Page::LiquidGlassShowcase
+        ) {
             use chrono::{Datelike, Timelike};
             let local = chrono::Local::now();
             self.app.liquid_showcase.clock_readout =

@@ -226,3 +226,6 @@ sidebar-components = Components
 sidebar-experiments = Experiments
 
 sidebar-demos = Demos
+
+liquid-glass-showcase = Liquid Glass Showcase
+liquid-glass-autoplay = Autoplay animations

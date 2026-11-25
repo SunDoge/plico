@@ -79,6 +79,8 @@ pub enum Page {
     Patterns,
     #[route(label = "Liquid Glass", icon = color_icons::DESIGN_IDEAS)]
     LiquidGlass,
+    #[route(label = "Liquid Glass Showcase", icon = color_icons::DESIGN_IDEAS)]
+    LiquidGlassShowcase,
     #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
     Effects,
     #[route(label = "Shader playground", icon = color_icons::DESIGN_IDEAS)]
@@ -221,6 +223,8 @@ impl Gallery {
                     }
                     Page::LiquidGlass => liquid_showcase::page(ui, &mut self.liquid_showcase, self.dark,
                         self.sidebar_collapsed),
+                    Page::LiquidGlassShowcase => liquid_showcase::wall(ui, &mut self.liquid_showcase,
+                        self.dark, self.sidebar_collapsed),
                     Page::Effects => effects::page(ui, &mut self.effects),
                     Page::ShaderPlayground => {
                         shader_playground::page(ui, &mut self.shader_playground)

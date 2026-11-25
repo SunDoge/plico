@@ -40,6 +40,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                         "Experiments",
                         &[
                             Page::LiquidGlass,
+                            Page::LiquidGlassShowcase,
                             Page::Effects,
                             Page::Glass,
                             Page::ShaderPlayground,
@@ -154,7 +155,9 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Patterns | Page::ComponentKit | Page::CuiShowcase | Page::NodeEditor => {
             &icons::LAYERS
         }
-        Page::LiquidGlass | Page::Effects | Page::ShaderPlayground => &icons::SPARKLES,
+        Page::LiquidGlass | Page::LiquidGlassShowcase | Page::Effects | Page::ShaderPlayground => {
+            &icons::SPARKLES
+        }
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,
         Page::Markdown => &icons::MESSAGE_SQUARE,

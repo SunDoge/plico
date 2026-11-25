@@ -4,6 +4,7 @@ use plico::{
     prelude::*,
     widgets::liquid::{self, ActionState},
 };
+use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -63,6 +64,106 @@ impl Default for Showcase {
     }
 }
 
+#[derive(Clone, Default, PartialEq)]
+struct Autoplay {
+    demo: Showcase,
+    phase: Option<plico::LoopPhase>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum DemoPopup {
+    Delivery,
+    More,
+    Options,
+    Reminder,
+}
+
+impl DemoPopup {
+    fn tile(self) -> &'static str {
+        match self {
+            Self::Delivery => "Select",
+            Self::More => "Button Group",
+            Self::Options => "Dropdown Menu",
+            Self::Reminder => "Popover",
+        }
+    }
+
+    fn state(self, demo: &mut Showcase) -> &mut PopoverState {
+        match self {
+            Self::Delivery => &mut demo.selection,
+            Self::More => &mut demo.message_menu,
+            Self::Options => &mut demo.menu,
+            Self::Reminder => &mut demo.reminder,
+        }
+    }
+}
+
+impl Autoplay {
+    fn advance(&mut self, cx: &mut UiContext, columns: usize) -> Option<u64> {
+        let phase = cx.loop_phases(
+            "liquid showcase",
+            Duration::from_millis(300),
+            &[Duration::from_millis(2800), Duration::from_millis(950)],
+        );
+        let pulse = phase
+            .filter(|phase| phase.index == 0)
+            .map(|phase| phase.cycle);
+        let running = pulse.is_some();
+        let phase_changed = phase != self.phase;
+        self.phase = phase;
+        if phase_changed {
+            self.demo.playing = false;
+            self.demo.deployed = false;
+            self.demo.deployment_due = running.then(|| cx.now() + Duration::from_millis(1400));
+            self.demo.tab = if running { 3 } else { 1 };
+            self.demo.brightness = if running { 82. } else { 40. };
+            self.demo.notifications = !running;
+            self.demo.remember = !running;
+            self.demo.remember_circle = running;
+            self.demo.confirmed = running;
+            self.demo.alarm_reset = None;
+        }
+
+        let [offset, height] = cx.scroll_viewport().unwrap_or_default();
+        let manual_popup_open = [
+            &self.demo.selection,
+            &self.demo.message_menu,
+            &self.demo.menu,
+            &self.demo.stretched_menu,
+            &self.demo.reminder,
+        ]
+        .into_iter()
+        .any(|state| state.is_open() && !state.is_preview());
+        for popup in [
+            DemoPopup::Delivery,
+            DemoPopup::More,
+            DemoPopup::Options,
+            DemoPopup::Reminder,
+        ] {
+            let index = PANELS
+                .iter()
+                .position(|&tile| tile == popup.tile())
+                .unwrap();
+            let top = (index / columns) as f32 * (PANEL_HEIGHT + f32::from(PANEL_GAP));
+            let visible = top >= offset && top + PANEL_HEIGHT <= offset + height;
+            let show = running && visible && !manual_popup_open;
+            let state = popup.state(&mut self.demo);
+            if show && phase_changed {
+                state.open_preview();
+                if popup == DemoPopup::Delivery {
+                    self.demo.delivery = usize::MAX;
+                }
+            } else if !show && state.is_preview() && state.is_open() {
+                state.close();
+                if popup == DemoPopup::Delivery && !running {
+                    self.demo.delivery = 1;
+                }
+            }
+        }
+        pulse
+    }
+}
+
 const TILES: [&str; 12] = [
     "Action Button",
     "Tabs",
@@ -118,14 +219,42 @@ fn play_stage(cx: &mut UiContext, playing: &mut bool, dark: bool) {
         .justify(Justify::Center)
         .children(|cx| {
             glass_grid(cx, dark);
-            let (label, icon) = if *playing {
-                ("Pause", &crate::icons::PAUSE)
-            } else {
-                ("Play", &crate::icons::PLAY)
-            };
-            if liquid::clear_button(cx, label, icon) {
-                *playing = !*playing;
-            }
+            play_button(cx, playing, None);
+        });
+}
+
+fn play_button(cx: &mut UiContext, playing: &mut bool, pulse: Option<u64>) {
+    let (label, icon) = if *playing {
+        ("Pause", &crate::icons::PAUSE)
+    } else {
+        ("Play", &crate::icons::PLAY)
+    };
+    let response = liquid::clear_button_with_pulse(cx, label, icon, pulse);
+    if response.clicked {
+        *playing = !*playing;
+    }
+    if response.pulse_finished {
+        *playing = true;
+        cx.request_rebuild();
+    }
+}
+
+#[component]
+fn grid_backdrop(cx: &mut UiContext, dark: bool) {
+    column(cx)
+        .absolute(0., 0.)
+        .width_percent(100.)
+        .height_percent(100.)
+        .clip(true)
+        .align(Align::Center)
+        .justify(Justify::Center)
+        .children(|cx| {
+            column(cx)
+                .width(520.)
+                .height(280.)
+                .shrink(0.)
+                .position(Position::Relative)
+                .children(|cx| glass_grid(cx, dark));
         });
 }
 fn message_button(
@@ -238,12 +367,12 @@ fn distance_readout(cx: &mut UiContext, tab: usize) {
 static CARD_RIBBONS: plico::ShaderAsset =
     plico::shader_asset!("../assets/shaders/card_ribbons.wgsl");
 
-fn weather_showcase(cx: &mut UiContext, width: f32, s: &mut Showcase) {
+fn weather_showcase(cx: &mut UiContext, width: f32, height: f32, s: &mut Showcase) {
     let animated = !cx.display_preferences().reduce_motion;
     row(cx)
         .position(Position::Relative)
         .width(width)
-        .height(288.)
+        .height(height)
         .gap(20)
         .align(Align::Center)
         .justify(Justify::Center)
@@ -251,7 +380,7 @@ fn weather_showcase(cx: &mut UiContext, width: f32, s: &mut Showcase) {
             shader(cx, &CARD_RIBBONS)
                 .absolute(0., 0.)
                 .width(width)
-                .height(288.)
+                .height(height)
                 .animated(animated);
             liquid::frosted_card(cx, 176., 176., 16., |cx| {
                 column(cx).gap(2).children(|cx| {
@@ -334,7 +463,7 @@ fn weather_showcase(cx: &mut UiContext, width: f32, s: &mut Showcase) {
 }
 
 #[component]
-fn demo(cx: &mut UiContext, title: &str, s: &mut Showcase, w: f32) {
+fn demo(cx: &mut UiContext, title: &str, s: &mut Showcase, w: f32, compact: bool) {
     match title {
         "Action Button" => {
             let now = cx.now();
@@ -431,57 +560,63 @@ fn demo(cx: &mut UiContext, title: &str, s: &mut Showcase, w: f32) {
             }
             let wide = w >= 560.;
             let alarm = if wide { row(cx) } else { column(cx) };
-            alarm.align(Align::Center).gap(24).children(|cx| {
-                column(cx)
-                    .align(if wide { Align::Start } else { Align::Center })
-                    .gap(4)
-                    .children(|cx| {
-                        row(cx).gap(8).align(Align::Center).children(|cx| {
-                            svg(cx, &crate::icons::ALARM_CLOCK)
-                                .size(20., 20.)
-                                .color(Color::Muted);
-                            text(cx, "Time to wake up")
-                                .font_size(18)
-                                .color(Color::Muted);
-                        });
-                        let (hour, minute, _) = s.clock_readout.unwrap_or((7, 0, 10));
-                        text!(cx, "{hour:02}:{minute:02}").font_size(60).weight(600);
-                    });
-                let track_width = (w - 48.).clamp(132., 288.);
-                column(cx).gap(12).children(|cx| {
-                    button_base(cx, "Snooze")
-                        .width(track_width)
-                        .height(96.)
-                        .radius(48.)
-                        .background(Color::Literal(0xf97316))
-                        .color(Color::Literal(0xffffff))
-                        .pressed_background(Color::Literal(0xea580c))
-                        .align(Align::Center)
-                        .justify(Justify::Center)
+            alarm
+                .align(Align::Center)
+                .gap(if compact { 8 } else { 24 })
+                .children(|cx| {
+                    column(cx)
+                        .align(if wide { Align::Start } else { Align::Center })
+                        .gap(4)
                         .children(|cx| {
-                            text(cx, "Snooze").font_size(20).weight(600);
+                            row(cx).gap(8).align(Align::Center).children(|cx| {
+                                svg(cx, &crate::icons::ALARM_CLOCK)
+                                    .size(20., 20.)
+                                    .color(Color::Muted);
+                                text(cx, "Time to wake up")
+                                    .font_size(if compact { 15 } else { 18 })
+                                    .color(Color::Muted);
+                            });
+                            let (hour, minute, _) = s.clock_readout.unwrap_or((7, 0, 10));
+                            text!(cx, "{hour:02}:{minute:02}")
+                                .font_size(if compact { 32 } else { 60 })
+                                .weight(600);
                         });
-                    let state = if s.confirmed {
-                        ActionState::Success
-                    } else {
-                        ActionState::Idle
-                    };
-                    if liquid::slide_to_confirm_xl(
-                        cx,
-                        "Slide to stop",
-                        "Stopped",
-                        state,
-                        track_width,
-                    ) {
-                        let deadline = now + std::time::Duration::from_millis(2600);
-                        s.confirmed = true;
-                        s.alarm_reset = Some(deadline);
-                        cx.request_rebuild_at(deadline);
-                    }
+                    let track_width = (w - 48.).clamp(132., 288.);
+                    let snooze_height = if compact { 48. } else { 96. };
+                    column(cx).gap(if compact { 8 } else { 12 }).children(|cx| {
+                        button_base(cx, "Snooze")
+                            .width(track_width)
+                            .height(snooze_height)
+                            .radius(snooze_height * 0.5)
+                            .background(Color::Literal(0xf97316))
+                            .color(Color::Literal(0xffffff))
+                            .pressed_background(Color::Literal(0xea580c))
+                            .align(Align::Center)
+                            .justify(Justify::Center)
+                            .children(|cx| {
+                                text(cx, "Snooze").font_size(20).weight(600);
+                            });
+                        let state = if s.confirmed {
+                            ActionState::Success
+                        } else {
+                            ActionState::Idle
+                        };
+                        if liquid::slide_to_confirm_xl(
+                            cx,
+                            "Slide to stop",
+                            "Stopped",
+                            state,
+                            track_width,
+                        ) {
+                            let deadline = now + std::time::Duration::from_millis(2600);
+                            s.confirmed = true;
+                            s.alarm_reset = Some(deadline);
+                            cx.request_rebuild_at(deadline);
+                        }
+                    });
                 });
-            });
         }
-        "Card" => weather_showcase(cx, w, s),
+        "Card" => weather_showcase(cx, w, if compact { 220. } else { 288. }, s),
         "Slider" => {
             let width = (w - 48.).clamp(132., 384.);
             column(cx).width(width).gap(8).children(|cx| {
@@ -801,29 +936,14 @@ pub fn page(cx: &mut UiContext, s: &mut Showcase, dark: bool, collapsed: bool) {
                                                         | "Popover"
                                                         | "Button Group"
                                                 ) {
-                                                    column(cx)
-                                                        .absolute(0., 0.)
-                                                        .width_percent(100.)
-                                                        .height_percent(100.)
-                                                        .clip(true)
-                                                        .align(Align::Center)
-                                                        .justify(Justify::Center)
-                                                        .children(|cx| {
-                                                            column(cx)
-                                                                .width(520.)
-                                                                .height(280.)
-                                                                .shrink(0.)
-                                                                .position(Position::Relative)
-                                                                .children(|cx| {
-                                                                    glass_grid(cx, dark)
-                                                                });
-                                                        });
+                                                    grid_backdrop(cx, dark);
                                                 }
                                                 demo(
                                                     cx,
                                                     title,
                                                     s,
                                                     (width - 16. * (cols - 1) as f32) / cols as f32,
+                                                    false,
                                                 );
                                             });
                                         text(cx, title)
@@ -838,4 +958,153 @@ pub fn page(cx: &mut UiContext, s: &mut Showcase, dark: bool, collapsed: bool) {
                 });
             }
         });
+}
+
+const PANELS: [&str; 12] = [
+    "Button",
+    "Action Button",
+    "Tabs",
+    "Badge",
+    "Card",
+    "Slider",
+    "Switch & Checkbox",
+    "Slide to Confirm",
+    "Select",
+    "Button Group",
+    "Dropdown Menu",
+    "Popover",
+];
+const PANEL_GAP: u16 = 16;
+const PANEL_HEIGHT: f32 = 280.;
+
+/// The compact, live layout used for the Gallery overview and single-pass recording.
+#[component]
+pub fn wall(cx: &mut UiContext, s: &mut Showcase, dark: bool, collapsed: bool) {
+    let inset = cx.theme().metrics.space(6);
+    let width = cx.viewport_width() - if collapsed { 64. } else { 224. } - f32::from(inset) * 2.;
+    let columns = if width >= 1360. {
+        4
+    } else if width >= 1010. {
+        3
+    } else if width >= 660. {
+        2
+    } else {
+        1
+    };
+    let tile_width =
+        ((width - f32::from(PANEL_GAP) * (columns - 1) as f32) / columns as f32).max(1.);
+    let stage = Color::Literal(if dark { 0x121315 } else { 0xececee });
+    let heading = cx.tr("liquid-glass-showcase", "Liquid Glass Showcase");
+    let autoplay_label = cx.tr("liquid-glass-autoplay", "Autoplay animations");
+    let reduced_motion = cx.display_preferences().reduce_motion;
+    let stored = cx.state(|| None::<Autoplay>);
+    let mut autoplay = stored.get();
+    column(cx)
+        .height(0.)
+        .grow(1.)
+        .padding_right(inset)
+        .gap(PANEL_GAP)
+        .children(|cx| {
+            let mut enabled = autoplay.is_some() && !reduced_motion;
+            row(cx)
+                .gap(12)
+                .wrap(true)
+                .align(Align::Center)
+                .justify(Justify::SpaceBetween)
+                .children(|cx| {
+                    text(cx, heading.as_ref())
+                        .font_size(if columns == 1 { 28 } else { 36 })
+                        .weight(650);
+                    checkbox(cx, autoplay_label.as_ref(), &mut enabled).disabled(reduced_motion);
+                });
+            if !enabled {
+                autoplay = None;
+            } else if autoplay.is_none() {
+                autoplay = Some(Autoplay::default());
+            }
+            column(cx)
+                .height(0.)
+                .grow(1.)
+                .scroll_y(true)
+                .children(|cx| {
+                    let (demo_state, button_pulse) = if let Some(playback) = &mut autoplay {
+                        playback.demo.clock_readout = s.clock_readout;
+                        playback.demo.card_date = s.card_date;
+                        let button_pulse = playback.advance(cx, columns);
+                        (&mut playback.demo, button_pulse)
+                    } else {
+                        (&mut *s, None)
+                    };
+                    grid(cx)
+                        .width_percent(100.)
+                        .grid_columns(std::iter::repeat_n(fr(1.), columns))
+                        .gap(PANEL_GAP)
+                        .shrink(0.)
+                        .children(|cx| {
+                            for title in PANELS {
+                                cx.keyed(title, |cx| {
+                                    column(cx)
+                                        .min_width(0.)
+                                        .height(PANEL_HEIGHT)
+                                        .radius(28.)
+                                        .background(stage)
+                                        .children(|cx| {
+                                            column(cx)
+                                                .height(0.)
+                                                .grow(1.)
+                                                .position(Position::Relative)
+                                                .align(Align::Center)
+                                                .justify(Justify::Center)
+                                                .gap(10)
+                                                .children(|cx| match title {
+                                                    "Button" => {
+                                                        grid_backdrop(cx, dark);
+                                                        play_button(
+                                                            cx,
+                                                            &mut demo_state.playing,
+                                                            button_pulse,
+                                                        );
+                                                    }
+                                                    "Switch & Checkbox" => {
+                                                        demo(
+                                                            cx, "Switch", demo_state, tile_width,
+                                                            true,
+                                                        );
+                                                        demo(
+                                                            cx, "Checkbox", demo_state, tile_width,
+                                                            true,
+                                                        );
+                                                    }
+                                                    _ => {
+                                                        if matches!(
+                                                            title,
+                                                            "Select"
+                                                                | "Button Group"
+                                                                | "Dropdown Menu"
+                                                                | "Popover"
+                                                        ) {
+                                                            grid_backdrop(cx, dark);
+                                                        }
+                                                        demo(
+                                                            cx, title, demo_state, tile_width, true,
+                                                        );
+                                                    }
+                                                });
+                                            text(cx, title)
+                                                .padding_x(20)
+                                                .padding_bottom(16)
+                                                .font_size(16)
+                                                .weight(600);
+                                        });
+                                });
+                            }
+                        });
+                });
+        });
+    if let Some(playback) = &mut autoplay
+        && let Some(link) = playback.demo.card_link.take()
+    {
+        s.card_link = Some(link);
+    }
+    stored.set(autoplay);
 }
