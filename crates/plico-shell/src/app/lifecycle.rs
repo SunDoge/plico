@@ -128,6 +128,8 @@ impl App {
             skipped_present_deadline: None,
             multi_click_settings: None,
             performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
+            #[cfg(feature = "recording")]
+            recording: crate::window_recording::WindowRecording::from_environment(),
         }
     }
 

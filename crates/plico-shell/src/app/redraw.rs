@@ -198,6 +198,17 @@ impl App {
         };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
+        #[cfg(feature = "recording")]
+        if presented {
+            let (width, height) = shell.size();
+            self.recording.sample(
+                &shell.renderer,
+                [width, height],
+                present_skipped,
+                frame_measurement.id(),
+                [build_frame_ms, scene_ms, present_ms],
+            );
+        }
         if shell.surface_acquire_pending() || shell.presentation_deferred() {
             // The worker will wake us once. Do not turn a normal wait into an
             // immediate failed-present retry and redundant UI/scene work.

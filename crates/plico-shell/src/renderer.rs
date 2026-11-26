@@ -111,6 +111,9 @@ pub(crate) fn write_png_file(
 pub(crate) fn unpremultiply(pixels: &mut [u8]) {
     for pixel in pixels.as_chunks_mut::<4>().0 {
         let alpha = u32::from(pixel[3]);
+        if alpha == 255 {
+            continue;
+        }
         for channel in &mut pixel[..3] {
             *channel = (u32::from(*channel) * 255 + alpha / 2)
                 .checked_div(alpha)

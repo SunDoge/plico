@@ -93,6 +93,28 @@ Rust 测试可以用 `PreviewScenario::record_frames` 接收每帧的虚拟时�
 绘制内容，原生系统菜单等窗口宿主表面仍由真实窗口测试覆盖。带语义断言的 `RecipePlan`
 仍从自己的入口执行，`plico record` 接收 PreviewScenario 格式。
 
+## 真实窗口诊断录制
+
+真实窗口录制由默认关闭的 `plico-desktop/recording` feature 提供。Stillroom 通过自身的
+`recording` feature 启用它。启动时设置 `PLICO_RECORD_DIR`，聚焦窗口后按
+**Ctrl+Shift+F9** 开始，再按一次结束。每次录制在输出目录内创建独立子目录。
+
+```sh
+PLICO_RECORD_DIR=reports/recordings PLICO_RECORD_MP4=1 \
+PLICO_PROFILE=trace PLICO_TELEMETRY_FILE=reports/live-frames.json \
+cargo run --locked -p stillroom --features recording,video
+```
+
+- `frame-*.png` 保存窗口内容的物理像素。`frames.json` 记录每张图的实际采样时间、
+  UI 构建、场景生成和提交耗时。`telemetry_frame_id` 可关联同次运行的 `redraw.cpu`
+  事件。正常退出应用后，`PLICO_TELEMETRY_FILE` 写出完整性能日志。
+- `PLICO_RECORD_MP4=1` 在停止后根据采样时间生成可变帧率 MP4，需要 PATH 上带
+  `libx264` 的 FFmpeg。PNG 和时间戳无需 FFmpeg。原生标题栏和系统弹窗位于窗口
+  内容之外。
+- 录制复用渲染器的留存画面。静止窗口记录起始帧，视频按实际时间保留静止区间。
+  PNG 写入与编码在后台运行，写入跟不上时 `dropped_busy` 和帧号间隔会标记缺帧。
+  最多请求 600 张图，关闭窗口或改变窗口像素尺寸也会结束该次录制。
+
 ## wgpu 离屏预览
 
 `plico-desktop/wgpu` 现在也提供同一套 `capture` 与 `PreviewScenario`，不需要

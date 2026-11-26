@@ -160,6 +160,8 @@ pub struct App {
     skipped_present_deadline: Option<Instant>,
     multi_click_settings: Option<plico_renderer::source::MultiClickSettings>,
     performance_hud: crate::performance_hud::PerformanceHud,
+    #[cfg(feature = "recording")]
+    recording: crate::window_recording::WindowRecording,
 }
 
 impl ApplicationHandler for App {

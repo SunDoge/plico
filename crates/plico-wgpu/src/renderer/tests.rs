@@ -1836,3 +1836,33 @@ fn frame_budget_reports_stages_and_collects_gpu_timestamps() {
         );
     }
 }
+
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn recording_readback_preserves_submitted_frames_and_recycles_staging() {
+    let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+    let size = [61, 29]; // Rows require padding in the staging buffer.
+    let first = renderer
+        .render_items(&[], size, [1., 0., 0., 1.], 0.)
+        .unwrap();
+    let readback = renderer.copy_retained_frame(None).unwrap();
+    let second = renderer
+        .render_items(&[], size, [0., 0., 1., 1.], 0.)
+        .unwrap();
+
+    let readback = std::thread::spawn(move || {
+        assert_eq!(readback.size(), size);
+        assert_eq!(readback.read().unwrap(), first);
+        readback
+    })
+    .join()
+    .unwrap();
+
+    let next = renderer.copy_retained_frame(Some(readback)).unwrap();
+    assert_eq!(next.read().unwrap(), second);
+    assert_eq!(
+        renderer.read_retained_rgba().unwrap().unwrap(),
+        (size, second)
+    );
+}

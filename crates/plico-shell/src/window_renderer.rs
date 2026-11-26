@@ -366,6 +366,20 @@ impl WindowRenderer {
 }
 
 impl WindowRenderer {
+    #[cfg(feature = "recording")]
+    pub(crate) fn copy_retained_frame(
+        &self,
+        reuse: Option<plico_wgpu::RetainedFrameReadback>,
+    ) -> Option<plico_wgpu::RetainedFrameReadback> {
+        match self {
+            Self::Wgpu {
+                active: Some(renderer),
+                ..
+            } => renderer.copy_retained_frame(reuse),
+            _ => None,
+        }
+    }
+
     pub(crate) fn capture(
         &mut self,
         scene: &Scene,

@@ -24,6 +24,10 @@ mod macos_frame_pass;
 mod macos_transaction;
 mod mipmap;
 mod renderer;
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+mod retained_readback;
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+pub use retained_readback::RetainedFrameReadback;
 mod shader;
 #[cfg(any(
     all(target_os = "macos", feature = "surface"),

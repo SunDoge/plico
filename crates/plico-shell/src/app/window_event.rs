@@ -149,6 +149,24 @@ impl App {
                 is_synthetic,
                 ..
             } => {
+                #[cfg(feature = "recording")]
+                if self.recording.enabled()
+                    && !is_synthetic
+                    && self.modifiers == (Modifiers::CONTROL | Modifiers::SHIFT)
+                    && event.physical_key
+                        == winit::keyboard::PhysicalKey::Code(winit::keyboard::KeyCode::F9)
+                {
+                    if event.state == ElementState::Pressed
+                        && !event.repeat
+                        && let Some(shell) = self.state.as_ref()
+                    {
+                        let (width, height) = shell.size();
+                        if self.recording.toggle([width, height]) {
+                            shell.window().request_redraw();
+                        }
+                    }
+                    return false;
+                }
                 let phase = match event.state {
                     ElementState::Pressed => KeyPhase::Down,
                     ElementState::Released => KeyPhase::Up,

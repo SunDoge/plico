@@ -851,6 +851,17 @@ impl WgpuWindow {
         }
         self.damage_enabled = enabled;
     }
+    /// Submit a GPU copy of the last retained frame without repainting or waiting
+    /// for pixels. Reuse a completed readback from this window when available.
+    #[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+    pub fn copy_retained_frame(
+        &self,
+        reuse: Option<crate::RetainedFrameReadback>,
+    ) -> Option<crate::RetainedFrameReadback> {
+        self.retained_size?;
+        self.renderer.copy_retained_frame(reuse)
+    }
+
     /// Read retained premultiplied RGBA8 pixels without repainting. Size is the target's own
     /// physical extent, which can differ from a newly resized native window.
     pub fn read_retained_rgba(&mut self) -> Result<Option<([u32; 2], Vec<u8>)>> {

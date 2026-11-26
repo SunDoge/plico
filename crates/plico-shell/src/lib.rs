@@ -62,6 +62,8 @@ mod single_instance;
 mod system;
 #[cfg(any(target_os = "macos", test))]
 mod titlebar_action;
+#[cfg(all(not(target_arch = "wasm32"), feature = "recording"))]
+mod window_recording;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_renderer;
 #[cfg(not(target_arch = "wasm32"))]
