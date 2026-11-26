@@ -117,22 +117,15 @@ cargo run --locked -p stillroom --features recording,video
 
 ## wgpu 离屏预览
 
-`plico-desktop/wgpu` 现在也提供同一套 `capture` 与 `PreviewScenario`，不需要
-开启 Skia。默认 Auto 优先选择 wgpu，仅启用 Skia 时选择 Skia；也可显式指定：
+`plico-desktop/wgpu` 提供 `capture` 与 `PreviewScenario`，桌面实时绘制与离屏预览都使用 wgpu。
 
 ```rust,ignore
-let frame = scenario.render_with_backend(
-    plico_desktop::RenderBackend::Wgpu,
-    plico_desktop::NativeApp,
-)?;
+let frame = scenario.render(plico_desktop::NativeApp)?;
 frame.write_png(output)?;
 ```
 
-低层 frame source 使用 `capture(&mut source).renderer(RenderBackend::Wgpu)`；
-原生 widget source 可用 `render_source_with_backend`。声明、脚本事件几何和最终
-绘制复用同一个后端实例及文字服务，避免预览布局使用另一套文字度量。
-显式选择不可用的后端会报错，不静默换成另一个 renderer。此 capture API 目前
-只支持 Skia／wgpu。wgpu 已连接 Linux／Windows／macOS 的系统文字；macOS CoreText 接入仍属实验，已支持 UTF-8 富文本 span 与单行截断。应用字体注册、span 独立行高和多行省略仍会明确报错。
+低层 frame source 使用 `capture(&mut source, CaptureOptions::new(width, height))`，原生 widget source 可用
+`render_source`。声明、脚本事件几何和最终绘制复用同一套文字服务。
 
 Gallery 可直接使用已有场景：
 
@@ -184,11 +177,11 @@ Gallery 的完整场景为 `apps/gallery/scenarios/black-hole.json`。
 Warden 七个场景的五轮测量及隔离检查见 [Recipe 批处理实验](experiments/recipe-batching.md)。
 当前保留现有 JSON `state + steps + time_ms`，不引入新的场景 DSL。
 
-框架提供 `PreviewSession` 复用后端资源。每次 `render_in` 仍调用工厂创建全新 App，
+框架提供 `CaptureSession` 复用后端资源。每次 `render_in` 仍调用工厂创建全新 App，
 重置 Source、文字上下文、输入状态和虚拟时钟；不沿用上一场景的 UI 状态。
 
 ```rust,ignore
-let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Wgpu);
+let mut session = plico_desktop::CaptureSession::default();
 for (scenario_path, output_path) in recipes {
     let scenario = plico_desktop::PreviewScenario::<PreviewConfig>::load(scenario_path)?;
     scenario.render_in(&mut session, |config| {
@@ -197,7 +190,7 @@ for (scenario_path, output_path) in recipes {
 }
 ```
 
-`PreviewSession` 是有限批次的资源复用 API，不是常驻窗口或进程崩溃隔离机制。
+`CaptureSession` 可用于单帧捕获、连续导出及脚本预览，统一复用 wgpu 资源。
 自定义 native surface 可使用 `render_source_in`。Skia 在尺寸变化时重建 surface；
 目前批处理实验数据和新回归测试来自 wgpu。通用 `plico capture` 尚未增加批处理参数，
 实验命令位于独立 [Plicowarden](plicowarden.md) 的 `recipe_probe` example。

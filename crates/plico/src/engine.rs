@@ -1667,30 +1667,31 @@ impl Engine {
 #[cfg(test)]
 mod declaration_storage_tests {
     use super::*;
+    use crate::widgets::{button, text};
 
     #[test]
     fn failed_declaration_preserves_order_and_next_pass_recovers() {
         let mut engine = Engine::default();
         engine
             .frame(|cx| {
-                cx.text("A").key("a");
-                cx.text("B").key("b");
+                text(cx, "A").key("a");
+                text(cx, "B").key("b");
             })
             .unwrap();
         let original = engine.node(engine.root()).unwrap().children.to_vec();
         assert!(
             engine
                 .frame(|cx| {
-                    cx.text("B").key("b");
-                    cx.text("B").key("b");
+                    text(cx, "B").key("b");
+                    text(cx, "B").key("b");
                 })
                 .is_err()
         );
         assert_eq!(engine.node(engine.root()).unwrap().children, original);
         engine
             .frame(|cx| {
-                cx.text("B").key("b");
-                cx.text("A").key("a");
+                text(cx, "B").key("b");
+                text(cx, "A").key("a");
             })
             .unwrap();
         assert_eq!(
@@ -1732,13 +1733,13 @@ mod declaration_storage_tests {
         engine
             .frame(|cx| {
                 for i in 0..1024_u64 {
-                    cx.button("item").key(i);
+                    button(cx).text("item").key(i);
                 }
             })
             .unwrap();
         engine
             .frame(|cx| {
-                cx.button("item").key(0_u64);
+                button(cx).text("item").key(0_u64);
             })
             .unwrap();
         let id = engine.node(engine.root()).unwrap().children[0];
@@ -1755,7 +1756,7 @@ mod declaration_storage_tests {
         let mut clicked = false;
         let stats = engine
             .frame(|cx| {
-                clicked = cx.button("item").key(0_u64).clicked();
+                clicked = button(cx).text("item").key(0_u64).clicked();
             })
             .unwrap();
         assert!(clicked);
@@ -1767,14 +1768,15 @@ mod declaration_storage_tests {
 #[cfg(test)]
 mod range_relation_tests {
     use super::*;
+    use crate::widgets::column;
 
     #[test]
     fn wrapped_thumbs_resolve_to_the_registered_group_and_expire_on_unmount() {
         let mut engine = Engine::default();
         engine
             .frame_declarations(|ui| {
-                ui.column().key("group").children(|ui| {
-                    ui.column().key("wrapper").children(|ui| {
+                column(ui).key("group").children(|ui| {
+                    column(ui).key("wrapper").children(|ui| {
                         for (key, thumb) in [
                             ("low", SliderThumb::Minimum),
                             ("high", SliderThumb::Maximum),

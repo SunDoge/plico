@@ -8,5 +8,6 @@ mod output;
 
 pub use frame::{Extrapolate, Frame, Interpolation, interpolate};
 pub use output::{
-    Codec, Composition, Error, MotionBlur, Options, Progress, frames, images, still, video,
+    Codec, Composition, Error, FrameOptions, MotionBlur, Progress, VideoOptions, frames, images,
+    still, video,
 };

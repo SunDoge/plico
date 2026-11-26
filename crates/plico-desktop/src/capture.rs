@@ -1,4 +1,4 @@
-//! Backend-selected offscreen capture for tests, documentation, and offline exports.
+//! Offscreen capture for tests, documentation, and offline exports.
 use plico_renderer::{FrameSource, Scene, TextContext};
 use snafu::Snafu;
 use std::time::Instant;
@@ -88,7 +88,11 @@ impl CapturedFrame {
     ) -> Result<Self, CaptureError> {
         let expected = usize::try_from(width)
             .ok()
-            .and_then(|width| usize::try_from(height).ok().map(|height| width * height))
+            .and_then(|width| {
+                usize::try_from(height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
             .and_then(|pixels| pixels.checked_mul(4));
         if width == 0 || height == 0 || expected != Some(rgba.len()) {
             return Err(CaptureError::InvalidOptions);
@@ -107,156 +111,39 @@ pub enum CaptureError {
     InvalidOptions,
     #[snafu(display("PNG encoding failed: {source}"))]
     Image { source: image::ImageError },
-    #[snafu(display("capture backend {backend:?} is unavailable"))]
-    Backend { backend: crate::RenderBackend },
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    #[snafu(display("wgpu capture is unavailable on this platform"))]
+    UnsupportedPlatform,
     #[snafu(display("capture frame failed: {source}"))]
     Frame {
         source: plico_renderer::FrameSourceError,
     },
-    #[cfg(feature = "wgpu")]
     #[snafu(display("wgpu capture failed: {source}"))]
     Wgpu { source: plico_wgpu::Error },
 }
 
-#[cfg(feature = "wgpu")]
 impl From<plico_wgpu::Error> for CaptureError {
     fn from(source: plico_wgpu::Error) -> Self {
         Self::Wgpu { source }
     }
 }
 
-pub(crate) enum CaptureRenderer {
-    #[cfg(feature = "wgpu")]
-    Wgpu(Box<plico_wgpu::Renderer>),
+pub(crate) fn configure_text(
+    renderer: &mut plico_wgpu::Renderer,
+    text: &mut TextContext,
+    scale: f64,
+) -> Result<(), CaptureError> {
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    {
+        renderer.configure_text(text, scale).map_err(Into::into)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        let _ = (renderer, text, scale);
+        Err(CaptureError::UnsupportedPlatform)
+    }
 }
-impl CaptureRenderer {
-    #[cfg(feature = "wgpu")]
-    pub(crate) fn force_general_pipelines(&mut self, force: bool) {
-        #[allow(irrefutable_let_patterns)]
-        if let Self::Wgpu(renderer) = self {
-            renderer.force_general_pipelines(force);
-        }
-    }
-    #[cfg(feature = "wgpu")]
-    pub(crate) fn force_no_occlusion_culling(&mut self, force: bool) {
-        #[allow(irrefutable_let_patterns)]
-        if let Self::Wgpu(renderer) = self {
-            renderer.force_no_occlusion_culling(force);
-        }
-    }
-    #[cfg(feature = "wgpu")]
-    pub(crate) fn force_no_ring_splitting(&mut self, force: bool) {
-        #[allow(irrefutable_let_patterns)]
-        if let Self::Wgpu(renderer) = self {
-            renderer.force_no_ring_splitting(force);
-        }
-    }
-    #[cfg(feature = "wgpu")]
-    pub(crate) fn batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu(renderer) => Some(renderer.batch_stats()),
-            #[allow(unreachable_patterns)]
-            _ => None,
-        }
-    }
-    pub(crate) fn adapter_name(&self) -> Option<&str> {
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu(renderer) => Some(renderer.adapter_info().name.as_str()),
-        }
-    }
 
-    pub(crate) fn new(
-        backend: crate::RenderBackend,
-        width: u32,
-        height: u32,
-    ) -> Result<Self, CaptureError> {
-        let backend = if matches!(backend, crate::RenderBackend::Auto) {
-            crate::RenderBackend::Wgpu
-        } else {
-            backend
-        };
-        match backend {
-            #[cfg(feature = "wgpu")]
-            crate::RenderBackend::Wgpu => {
-                let _ = (width, height);
-                Ok(Self::Wgpu(Box::new(pollster::block_on(
-                    plico_wgpu::Renderer::new(),
-                )?)))
-            }
-            _ => Err(CaptureError::Backend { backend }),
-        }
-    }
-    pub(crate) fn configure_text(
-        &mut self,
-        text: &mut TextContext,
-        scale: f64,
-    ) -> Result<(), CaptureError> {
-        let _ = scale;
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu(renderer) => {
-                #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-                {
-                    renderer.configure_text(text, scale).map_err(Into::into)
-                }
-                #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-                {
-                    let _ = (renderer, text);
-                    Err(CaptureError::Backend {
-                        backend: crate::RenderBackend::Wgpu,
-                    })
-                }
-            }
-        }
-    }
-    /// Renderer stages and GPU time for the last drawn frame, when reported.
-    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu(renderer) => {
-                let budget = renderer.frame_budget();
-                Some(plico_renderer::FrameBudgetSample {
-                    prepare_ms: budget.prepare_ms,
-                    upload_ms: budget.upload_ms,
-                    encode_ms: budget.encode_ms,
-                    submit_ms: budget.submit_ms,
-                    submissions: budget.submissions,
-                    command_buffers: budget.command_buffers,
-                    wait_ms: budget.wait_ms,
-                    gpu_ms: budget.gpu_ms,
-                    upload_bytes: budget.upload_bytes,
-                    instances: budget.instances,
-                    draw_calls: budget.draw_calls,
-                    passes: budget.passes,
-                    layer_bytes: budget.layer_bytes,
-                    effect_bytes: budget.effect_bytes,
-                    backdrop_copies: budget.backdrop_copies,
-                    backdrop_mip_passes: budget.backdrop_mip_passes,
-                    backdrop_bytes: budget.backdrop_bytes,
-                    backdrop_textures: budget.backdrop_textures,
-                    backdrop_shared_reads: budget.backdrop_shared_reads,
-                    backdrop_effect_pixels: budget.backdrop_effect_pixels,
-                })
-            }
-        }
-    }
-    fn draw(
-        &mut self,
-        scene: &Scene,
-        size: [u32; 2],
-        background: peniko::Color,
-    ) -> Result<Vec<u8>, CaptureError> {
-        let _ = size;
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu(renderer) => {
-                Ok(renderer.render_scene(scene, size, background.components, false)?)
-            }
-        }
-    }
-}
 pub(crate) fn dimensions(width: u32, height: u32, scale: f64) -> Result<(u32, u32), CaptureError> {
     if width == 0 || height == 0 || !scale.is_finite() || scale <= 0. {
         return Err(CaptureError::InvalidOptions);
@@ -277,182 +164,179 @@ pub(crate) fn dimensions(width: u32, height: u32, scale: f64) -> Result<(u32, u3
     Ok((width, height))
 }
 
-/// Capture a frame source without exposing scene, text, or settle-pass setup.
-///
-/// Polling is bounded: `settle_passes(0)` captures the first frame, while the
-/// default allows eight asynchronous layout/native-widget notifications.
-pub fn capture(source: &mut dyn FrameSource) -> Capture<'_> {
-    Capture {
-        source,
-        width: 800,
-        height: 600,
-        scale: 1.,
-        settle_passes: 8,
-        backend: crate::RenderBackend::Auto,
-    }
+/// Logical capture extent, render scale and bounded async polling budget.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CaptureOptions {
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    /// Extra passes after the initial frame. Zero captures the first frame.
+    pub settle_passes: usize,
 }
 
-pub struct Capture<'a> {
-    source: &'a mut dyn FrameSource,
-    width: u32,
-    height: u32,
-    scale: f64,
-    settle_passes: usize,
-    backend: crate::RenderBackend,
-}
-
-/// Reusable renderer and text state for a fixed-size sequence of captures.
-///
-/// Unlike [`Capture::render`], a session keeps GPU pipelines, glyph caches and
-/// the retained offscreen target warm between frames. Video and image-sequence
-/// exporters use this path so frame N does not initialize a renderer again.
-pub struct CaptureSession {
-    renderer: CaptureRenderer,
-    text: TextContext,
-    width: u32,
-    height: u32,
-    scale: f64,
-    settle_passes: usize,
-}
-
-impl CaptureSession {
-    pub fn new(
-        backend: crate::RenderBackend,
-        width: u32,
-        height: u32,
-        scale: f64,
-    ) -> Result<Self, CaptureError> {
-        let (physical_width, physical_height) = dimensions(width, height, scale)?;
-        let mut renderer = CaptureRenderer::new(backend, physical_width, physical_height)?;
-        let mut text = TextContext::new();
-        renderer.configure_text(&mut text, scale)?;
-        Ok(Self {
-            renderer,
-            text,
+impl CaptureOptions {
+    pub const fn new(width: u32, height: u32) -> Self {
+        Self {
             width,
             height,
-            scale,
-            settle_passes: 0,
-        })
+            scale: 1.,
+            settle_passes: 8,
+        }
     }
+}
 
-    pub fn settle_passes(mut self, passes: usize) -> Self {
-        self.settle_passes = passes;
-        self
+impl Default for CaptureOptions {
+    fn default() -> Self {
+        Self::new(800, 600)
     }
+}
 
-    pub fn renderer_name(&self) -> Option<&str> {
-        self.renderer.adapter_name()
+/// Render one offscreen frame. For a sequence, reuse a [`CaptureSession`].
+pub fn capture(
+    source: &mut dyn FrameSource,
+    options: CaptureOptions,
+) -> Result<CapturedFrame, CaptureError> {
+    CaptureSession::default().render(source, options)
+}
+
+/// Reuse GPU pipelines and offscreen resources across frames. Low-level
+/// captures also retain text caches. Scripted previews create their own
+/// source, clock and text context for each scenario.
+#[derive(Default)]
+pub struct CaptureSession {
+    renderer: Option<Box<plico_wgpu::Renderer>>,
+    text: Option<(f64, TextContext)>,
+    force_general_pipelines: bool,
+    force_no_occlusion_culling: bool,
+    force_no_ring_splitting: bool,
+}
+impl CaptureSession {
+    /// Compare captures with every quad class drawn by the general shader.
+    pub fn force_general_pipelines(&mut self, force: bool) {
+        self.force_general_pipelines = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_general_pipelines(force);
+        }
     }
-
-    pub fn render(&mut self, source: &mut dyn FrameSource) -> Result<CapturedFrame, CaptureError> {
-        self.render_profiled(source).map(|(frame, _)| frame)
+    /// Disable conservative painter-order culling for pixel/performance A/Bs.
+    pub fn force_no_occlusion_culling(&mut self, force: bool) {
+        self.force_no_occlusion_culling = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_occlusion_culling(force);
+        }
+    }
+    /// Disable large border-only scissor splitting for pixel/performance A/Bs.
+    pub fn force_no_ring_splitting(&mut self, force: bool) {
+        self.force_no_ring_splitting = force;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.force_no_ring_splitting(force);
+        }
+    }
+    /// Renderer CPU stages and GPU time from the most recent capture.
+    pub fn last_frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
+        self.renderer
+            .as_ref()
+            .map(|renderer| renderer.frame_budget())
+    }
+    /// Renderer batching and specialized-pipeline counters from the latest capture.
+    pub fn last_batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
+        self.renderer
+            .as_ref()
+            .map(|renderer| renderer.batch_stats())
+    }
+    /// Name reported by the active GPU adapter, for reproducible profiling.
+    pub fn adapter_name(&self) -> Option<&str> {
+        self.renderer
+            .as_ref()
+            .map(|renderer| renderer.adapter_info().name.as_str())
+    }
+    pub(crate) fn renderer(&mut self) -> Result<&mut plico_wgpu::Renderer, CaptureError> {
+        if self.renderer.is_none() {
+            let mut renderer = Box::new(pollster::block_on(plico_wgpu::Renderer::new())?);
+            renderer.force_general_pipelines(self.force_general_pipelines);
+            renderer.force_no_occlusion_culling(self.force_no_occlusion_culling);
+            renderer.force_no_ring_splitting(self.force_no_ring_splitting);
+            self.renderer = Some(renderer);
+        }
+        Ok(self.renderer.as_deref_mut().unwrap())
+    }
+    pub fn render(
+        &mut self,
+        source: &mut dyn FrameSource,
+        options: CaptureOptions,
+    ) -> Result<CapturedFrame, CaptureError> {
+        self.render_profiled(source, options)
+            .map(|(frame, _)| frame)
     }
 
     pub fn render_profiled(
         &mut self,
         source: &mut dyn FrameSource,
+        options: CaptureOptions,
     ) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
-        capture(source)
-            .size(self.width, self.height)
-            .scale(self.scale)
-            .settle_passes(self.settle_passes)
-            .render_profiled_with_borrowed(&mut self.renderer, &mut self.text)
+        dimensions(options.width, options.height, options.scale)?;
+        self.renderer()?;
+        let renderer = self.renderer.as_deref_mut().unwrap();
+        let (scale, text) = self.text.get_or_insert_with(|| (0., TextContext::new()));
+        if *scale != options.scale {
+            configure_text(renderer, text, options.scale)?;
+            *scale = options.scale;
+        }
+        render_with_text(source, renderer, text, options)
     }
 }
-impl Capture<'_> {
-    pub fn size(mut self, width: u32, height: u32) -> Self {
-        self.width = width;
-        self.height = height;
-        self
-    }
-    pub fn scale(mut self, scale: f64) -> Self {
-        self.scale = scale;
-        self
-    }
-    pub fn settle_passes(mut self, passes: usize) -> Self {
-        self.settle_passes = passes;
-        self
-    }
-    /// Select the capture renderer. An unavailable explicit backend errors.
-    pub fn renderer(mut self, backend: crate::RenderBackend) -> Self {
-        self.backend = backend;
-        self
-    }
-    pub fn render(self) -> Result<CapturedFrame, CaptureError> {
-        let (width, height) = dimensions(self.width, self.height, self.scale)?;
-        let mut renderer = CaptureRenderer::new(self.backend, width, height)?;
-        let mut text = TextContext::new();
-        renderer.configure_text(&mut text, self.scale)?;
-        self.render_with(renderer, text)
-    }
-    pub fn write_png(self, path: impl AsRef<std::path::Path>) -> Result<(), CaptureError> {
-        self.render()?.write_png(path)
-    }
-    pub(crate) fn render_with(
-        self,
-        mut renderer: CaptureRenderer,
-        mut text: TextContext,
-    ) -> Result<CapturedFrame, CaptureError> {
-        self.render_with_borrowed(&mut renderer, &mut text)
-    }
-    pub(crate) fn render_with_borrowed(
-        self,
-        renderer: &mut CaptureRenderer,
-        text: &mut TextContext,
-    ) -> Result<CapturedFrame, CaptureError> {
-        self.render_profiled_with_borrowed(renderer, text)
-            .map(|(frame, _)| frame)
-    }
-    pub(crate) fn render_profiled_with_borrowed(
-        self,
-        renderer: &mut CaptureRenderer,
-        text: &mut TextContext,
-    ) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
-        let (width, height) = dimensions(self.width, self.height, self.scale)?;
-        for pass in 0..=self.settle_passes {
-            let mut scene = Scene::new();
-            let measured = if let Some(measured) = self
-                .source
-                .render_retained_frame(&mut scene, text, (self.width, self.height), self.scale)
-                .map_err(|source| CaptureError::Frame { source })?
-            {
-                measured
-            } else {
-                self.source
-                    .build_and_paint(&mut scene, text, self.width, self.height, self.scale)
-                    .map_err(|source| CaptureError::Frame { source })?
+
+pub(crate) fn render_with_text(
+    source: &mut dyn FrameSource,
+    renderer: &mut plico_wgpu::Renderer,
+    text: &mut TextContext,
+    options: CaptureOptions,
+) -> Result<(CapturedFrame, CaptureProfile), CaptureError> {
+    let (width, height) = dimensions(options.width, options.height, options.scale)?;
+    for pass in 0..=options.settle_passes {
+        let mut scene = Scene::new();
+        let measured = source
+            .render_frame(
+                &mut scene,
+                text,
+                (options.width, options.height),
+                options.scale,
+            )
+            .map_err(|source| CaptureError::Frame { source })?;
+        if pass == options.settle_passes || !source.poll_async() {
+            let draw_started = Instant::now();
+            let rgba = renderer.render_scene(
+                &scene,
+                [width, height],
+                source.base_color().components,
+                false,
+            )?;
+            let mut source_stats = plico_renderer::FrameStats::default();
+            source.augment_frame_stats(&mut source_stats);
+            let profile = CaptureProfile {
+                node_count: measured.0,
+                build_frame_ms: measured.1,
+                declaration_ms: source_stats.sample_declaration_ms,
+                sync_ms: source_stats.sample_sync_ms,
+                backend_ms: source_stats.sample_backend_ms,
+                declaration_passes: source_stats.declaration_passes,
+                layout_runs: source_stats.layout_runs,
+                flatten_visits: source_stats.flatten_visits,
+                scene_ms: measured.2,
+                scene_commands: scene.commands.len() as u64,
+                scene_reused: source_stats.scene_reused,
+                draw_ms: draw_started.elapsed().as_secs_f64() * 1_000.,
+                renderer: Some(renderer.frame_budget()),
             };
-            if pass == self.settle_passes || !self.source.poll_async() {
-                let draw_started = Instant::now();
-                let rgba = renderer.draw(&scene, [width, height], self.source.base_color())?;
-                let mut source_stats = plico_renderer::FrameStats::default();
-                self.source.augment_frame_stats(&mut source_stats);
-                let profile = CaptureProfile {
-                    node_count: measured.0,
-                    build_frame_ms: measured.1,
-                    declaration_ms: source_stats.sample_declaration_ms,
-                    sync_ms: source_stats.sample_sync_ms,
-                    backend_ms: source_stats.sample_backend_ms,
-                    declaration_passes: source_stats.declaration_passes,
-                    layout_runs: source_stats.layout_runs,
-                    flatten_visits: source_stats.flatten_visits,
-                    scene_ms: measured.2,
-                    scene_commands: scene.commands.len() as u64,
-                    scene_reused: source_stats.scene_reused,
-                    draw_ms: draw_started.elapsed().as_secs_f64() * 1_000.,
-                    renderer: renderer.frame_budget(),
-                };
-                return Ok((
-                    CapturedFrame {
-                        width,
-                        height,
-                        rgba,
-                    },
-                    profile,
-                ));
-            }
+            return Ok((
+                CapturedFrame {
+                    width,
+                    height,
+                    rgba,
+                },
+                profile,
+            ));
         }
-        unreachable!("bounded settle loop always captures its final pass")
     }
+    unreachable!("bounded settle loop always captures its final pass")
 }

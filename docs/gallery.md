@@ -9,7 +9,7 @@ Gallery 持有可序列化的 Page enum，通过 match 声明页面。切页卸�
 
 应用组件签名使用 `&mut UiContext`，通过 column(cx)、button(cx).text(...) 等独立函数构建。NavItem、项目卡片是普通函数，panel 返回应用自己的可配置容器；均不需要给 UiContext 增加方法或实现 Widget。内部仍直接借用 Engine，没有内部可变的共享 context。
 
-main.rs 只构造 App 并调用 run_with_options，不解析参数。examples/capture.rs 和 examples/probe.rs 是开发验证工具，由 plico-cli 的 render/probe 调用。
+普通启动由 `main.rs` 构造帧源并调用 `run_source`。这个入口也解析预览截图和录制参数。开发用的 `examples/capture.rs` 和 `examples/probe.rs` 由 Plico CLI 的 render/probe 命令调用。
 
 ## 基础 motion
 

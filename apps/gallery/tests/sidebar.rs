@@ -1,11 +1,11 @@
 #![cfg(feature = "host")]
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, DifferentialTester, Driver};
+use plico_desktop::testing::{Command, DifferentialTester, Tester};
 use plico_renderer::{SemanticRole, SemanticSnapshot};
 use std::time::Duration;
 
-fn click(driver: &mut Driver<Gallery>, role: &str, label: &str) {
+fn click(driver: &mut Tester<Gallery>, role: &str, label: &str) {
     driver
         .execute(Command::Click {
             role: role.into(),
@@ -14,7 +14,7 @@ fn click(driver: &mut Driver<Gallery>, role: &str, label: &str) {
         })
         .unwrap();
 }
-fn heading_x(driver: &Driver<Gallery>) -> f32 {
+fn heading_x(driver: &Tester<Gallery>) -> f32 {
     driver
         .snapshot()
         .node_by_role(SemanticRole::Label, "Workspace / Gallery", None)
@@ -30,7 +30,7 @@ fn heading_edge(frame: &SemanticSnapshot) -> Result<f32, String> {
 
 #[test]
 fn sidebar_moves_content_in_one_direction_per_toggle() {
-    let mut ui = Driver::new(Gallery::default(), 1120, 820).unwrap();
+    let mut ui = Tester::new(Gallery::default(), 1120, 820).unwrap();
     let expanded = heading_x(&ui);
     for (direction, label) in [(-1., "collapse"), (1., "expand")] {
         let start = heading_x(&ui);
@@ -63,7 +63,7 @@ fn sidebar_moves_content_in_one_direction_per_toggle() {
 
 #[test]
 fn expanding_never_squeezes_the_header_title() {
-    let mut driver = Driver::new(Gallery::default(), 1120, 820).unwrap();
+    let mut driver = Tester::new(Gallery::default(), 1120, 820).unwrap();
     click(&mut driver, "button", "Toggle navigation");
     driver.advance(Duration::from_millis(400)).unwrap();
     click(&mut driver, "button", "Toggle navigation");
@@ -91,7 +91,7 @@ fn expanding_never_squeezes_the_header_title() {
 
 #[test]
 fn collapsing_animates_layout_without_replacing_navigation_targets() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::Patterns),
             ..Default::default()

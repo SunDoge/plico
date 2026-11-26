@@ -1,4 +1,5 @@
 use super::*;
+use plico::widgets::{column, text};
 
 #[test]
 fn checked_frames_return_declaration_errors_without_side_channels() {
@@ -6,8 +7,8 @@ fn checked_frames_return_declaration_errors_without_side_channels() {
 
     impl HostView for DuplicateKeys {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
-            ui.text("First").key("duplicate");
-            ui.text("Second").key("duplicate");
+            text(ui, "First").key("duplicate");
+            text(ui, "Second").key("duplicate");
         }
     }
 
@@ -21,8 +22,7 @@ fn checked_frames_return_declaration_errors_without_side_channels() {
 
     let mut scene = Scene::new();
     let error =
-        FrameSource::render_retained_frame(&mut source, &mut scene, &mut text, (320, 200), 1.)
-            .unwrap_err();
+        FrameSource::render_frame(&mut source, &mut scene, &mut text, (320, 200), 1.).unwrap_err();
     assert!(error.to_string().contains("duplicate UI key"));
 }
 
@@ -32,7 +32,7 @@ fn public_frame_stats_correlate_runtime_work_and_clear_it_on_retained_frames() {
 
     impl HostView for Label {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
-            ui.text("Frame diagnostics");
+            text(ui, "Frame diagnostics");
         }
     }
 
@@ -40,7 +40,7 @@ fn public_frame_stats_correlate_runtime_work_and_clear_it_on_retained_frames() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.0)
+        .render_frame(&mut scene, &mut text, (320, 200), 1.0)
         .unwrap();
 
     let mut stats = plico_renderer::FrameStats::default();
@@ -52,7 +52,7 @@ fn public_frame_stats_correlate_runtime_work_and_clear_it_on_retained_frames() {
     assert!(!stats.scene_reused);
 
     source
-        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.0)
+        .render_frame(&mut scene, &mut text, (320, 200), 1.0)
         .unwrap();
     source.augment_frame_stats(&mut stats);
     assert_eq!(stats.sample_declaration_ms, 0.0);
@@ -71,7 +71,7 @@ fn measured_layout_schedules_one_followup_frame() {
     struct Measured(Option<[f32; 2]>);
     impl HostView for Measured {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
-            ui.column().width(80.).height(40.).children(|ui| {
+            column(ui).width(80.).height(40.).children(|ui| {
                 self.0 = ui.layout_size();
             });
         }
@@ -80,11 +80,11 @@ fn measured_layout_schedules_one_followup_frame() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+        .render_frame(&mut scene, &mut text, (320, 200), 1.)
         .unwrap();
     assert!(source.has_anim());
     source
-        .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+        .render_frame(&mut scene, &mut text, (320, 200), 1.)
         .unwrap();
     assert_eq!(source.view().0, Some([80., 40.]));
     assert!(!source.has_anim());

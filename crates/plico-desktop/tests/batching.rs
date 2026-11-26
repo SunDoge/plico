@@ -221,14 +221,14 @@ fn conditional_async_load_settles_and_native_frame_observes_completion() {
     let mut text = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .render_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
     assert_eq!(source.view().services.commands, [42]);
     assert_eq!(source.batch_stats().declaration_passes, 1);
     source.update(|view| view.services.pending.push(42));
     assert!(source.poll_async());
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .render_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
     assert_eq!(source.view().services.commands, [42]);
     assert!(
@@ -256,8 +256,8 @@ fn failed_declarations_discard_commands_from_earlier_passes() {
                 }
                 2 => {
                     services.send(8);
-                    cx.text("one").key("duplicate");
-                    cx.text("two").key("duplicate");
+                    text(cx, "one").key("duplicate");
+                    text(cx, "two").key("duplicate");
                 }
                 _ => services.send(9),
             }

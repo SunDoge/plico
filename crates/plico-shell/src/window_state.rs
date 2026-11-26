@@ -57,9 +57,6 @@ pub struct WindowStatePersistence {
     fullscreen: bool,
 }
 
-/// Historical name of [`WindowStatePersistence`].
-pub type WindowSizePersistence = WindowStatePersistence;
-
 impl WindowStatePersistence {
     /// Restore valid saved geometry into `options` and create its persistence hook.
     pub fn restore(

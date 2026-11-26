@@ -1045,7 +1045,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         let mut scene = Scene::new();
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         let size = [(320. * scale) as u32, (100. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
@@ -1059,7 +1059,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         assert!(source.handle_event(UiEvent::Paste(value.into())).handled);
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         let mut oracle = pollster::block_on(Renderer::new()).unwrap();
         oracle
@@ -1090,7 +1090,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         }));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         assert_eq!(
             source.view().0.value,
@@ -1104,7 +1104,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source.handle_event(UiEvent::Ime(ImeEvent::Commit("日本".into())));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         assert_eq!(source.view().0.value, format!("{value}日本"));
         let key = |value: &str| {
@@ -1124,7 +1124,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source.handle_event(key("a"));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         assert!(
@@ -1236,7 +1236,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
         let mut source = Source::with_clock(NativeView(ScrollPage::default()), clock.clone());
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+            .render_frame(&mut scene, &mut text, (320, 160), scale)
             .unwrap();
         let size = [(320. * scale) as u32, (160. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
@@ -1268,7 +1268,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
             }
             clock.advance(Duration::from_millis(16)).unwrap();
             source
-                .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+                .render_frame(&mut scene, &mut text, (320, 160), scale)
                 .unwrap();
             max_scroll = source
                 .placed_nodes()

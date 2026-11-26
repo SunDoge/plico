@@ -260,10 +260,6 @@ impl ToastHost {
             motion: None,
         });
     }
-    /// `host.toast(Toast::message("Saved"))` shorthand.
-    pub fn toast(&mut self, toast: Toast) {
-        self.add(toast);
-    }
     /// Close the toast with `id`; an empty `id` closes every toast
     /// (MyGO CloseToast).
     pub fn close(&mut self, id: &str) {

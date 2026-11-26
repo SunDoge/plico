@@ -2,17 +2,18 @@
 //! The widget is never serialized into a UI checkpoint.
 use super::{HostView, Source};
 use plico::Engine;
-use plico_renderer::platform::effect::{EffectId, EffectPayload, EffectResult, EffectScope};
+use plico_renderer::platform::effect::EffectId;
 use plico_renderer::{
-    EffectCompletion, EffectRequest, EventResponse, FrameSource, HostAction, ImeState,
-    MeasureContext, PaintContext, Point, PointerPhase, Scene, TextContext, UiEvent, WakeCallback,
-    Widget, WidgetAvailableSpace, WidgetGeometry, WidgetNodeEvent, layout::PlacedNode,
+    EffectCompletion, EffectRequest, EventResponse, FrameSource, ImeState, MeasureContext,
+    PaintContext, Point, PointerPhase, Scene, TextContext, UiEvent, WakeCallback, Widget,
+    WidgetAvailableSpace, WidgetGeometry, WidgetNodeEvent, layout::PlacedNode,
 };
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::HashMap, sync::Arc, time::Instant};
+
+enum EffectOrigin {
+    View(EffectId),
+    Widget(EffectId),
+}
 
 /// A single native widget anchored to a unique static local layout key.
 ///
@@ -34,10 +35,7 @@ pub struct SurfaceSource<V: HostView, W: Widget> {
     event_dirty: bool,
     entity: Option<plico::Entity>,
     scale: f64,
-    actions: VecDeque<HostAction>,
-    effects: VecDeque<EffectRequest>,
-    reads: HashMap<EffectId, u64>,
-    writes: HashSet<EffectId>,
+    pending_effects: HashMap<EffectId, EffectOrigin>,
     next_effect: u32,
     on_event: Option<fn(&mut V, WidgetNodeEvent) -> bool>,
 }
@@ -67,10 +65,7 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
             event_dirty: false,
             entity: None,
             scale: 1.,
-            actions: VecDeque::new(),
-            effects: VecDeque::new(),
-            reads: HashMap::new(),
-            writes: HashSet::new(),
+            pending_effects: HashMap::new(),
             next_effect: 0,
             on_event: None,
         }
@@ -224,33 +219,6 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
                 self.event_dirty = true;
             }
         }
-        while let Some(action) = self.widget.take_host_action() {
-            let (payload, read) = match action {
-                HostAction::SetClipboard(text) => (EffectPayload::ClipboardWrite { text }, None),
-                HostAction::ReadClipboard { request_id } => {
-                    (EffectPayload::ClipboardRead, Some(request_id))
-                }
-                action => {
-                    self.actions.push_back(action);
-                    continue;
-                }
-            };
-            self.next_effect = self
-                .next_effect
-                .checked_add(1)
-                .expect("surface effect IDs exhausted");
-            let id = EffectId(self.next_effect);
-            if let Some(request_id) = read {
-                self.reads.insert(id, request_id);
-            } else {
-                self.writes.insert(id);
-            }
-            self.effects.push_back(EffectRequest {
-                id,
-                scope: EffectScope::Runtime,
-                payload,
-            });
-        }
     }
     fn local(&self, p: Point) -> Point {
         let m = self.window_to_local;
@@ -295,10 +263,6 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
         self.source.set_multi_click_settings(settings);
         self.widget.set_multi_click_interval(settings.interval);
     }
-    fn set_device_scale(&mut self, scale: f64) {
-        self.scale = scale;
-        self.source.set_device_scale(scale);
-    }
     fn set_wake_callback(&mut self, wake: WakeCallback) {
         self.source.set_wake_callback(wake.clone());
         self.widget.set_wake_callback(wake);
@@ -308,27 +272,36 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
         self.drain();
         self.source.poll_async() | !changed.is_empty() | std::mem::take(&mut self.event_dirty)
     }
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.drain();
-        self.actions
-            .pop_front()
-            .or_else(|| self.source.take_host_action())
-    }
     fn take_effect(&mut self) -> Option<EffectRequest> {
         self.drain();
-        self.effects
-            .pop_front()
-            .or_else(|| self.source.take_effect())
+        let (mut request, origin) = if let Some(request) = self.widget.take_effect() {
+            let id = request.id;
+            (request, EffectOrigin::Widget(id))
+        } else {
+            let request = self.source.take_effect()?;
+            let id = request.id;
+            (request, EffectOrigin::View(id))
+        };
+        self.next_effect = self
+            .next_effect
+            .checked_add(1)
+            .expect("surface effect IDs exhausted");
+        request.id = EffectId(self.next_effect);
+        self.pending_effects.insert(request.id, origin);
+        Some(request)
     }
-    fn complete_effect(&mut self, completion: EffectCompletion) {
-        if let Some(request_id) = self.reads.remove(&completion.id) {
-            let text = match completion.result {
-                EffectResult::ClipboardText(text) => text,
-                _ => None,
-            };
-            self.widget.deliver_clipboard_text(request_id, text);
-        } else if !self.writes.remove(&completion.id) {
-            self.source.complete_effect(completion);
+
+    fn complete_effect(&mut self, mut completion: EffectCompletion) {
+        match self.pending_effects.remove(&completion.id) {
+            Some(EffectOrigin::Widget(id)) => {
+                completion.id = id;
+                self.widget.complete_effect(completion);
+            }
+            Some(EffectOrigin::View(id)) => {
+                completion.id = id;
+                self.source.complete_effect(completion);
+            }
+            None => {}
         }
     }
     fn prepare_for_event(
@@ -366,14 +339,14 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     ) {
         self.paint_surface(scene, &mut nodes.to_vec(), text, size, scale);
     }
-    fn build_and_paint(
+    fn render_frame(
         &mut self,
         scene: &mut Scene,
         text: &mut TextContext,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
         scale: f64,
     ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
+        self.scale = scale;
         text.set_native_paragraph_scale(scale);
         let start = Instant::now();
         let mut nodes = self.try_build_frame(text, width, height)?;
@@ -526,13 +499,13 @@ mod tests {
         struct DuplicateKeys;
         impl HostView for DuplicateKeys {
             fn show(&mut self, ui: &mut UiContext) {
-                ui.text("first").key("duplicate");
-                ui.text("second").key("duplicate");
+                text(ui, "first").key("duplicate");
+                text(ui, "second").key("duplicate");
             }
         }
         let mut source = SurfaceSource::new(DuplicateKeys, EmptyWidget, "unused-slot");
         let error = source
-            .build_and_paint(&mut Scene::new(), &mut TextContext::new(), 320, 200, 1.)
+            .render_frame(&mut Scene::new(), &mut TextContext::new(), (320, 200), 1.)
             .unwrap_err();
         assert!(error.to_string().contains("duplicate UI key"));
     }
@@ -555,7 +528,7 @@ mod tests {
         // Includes fractional DPI, returning to 100%, and a later increase.
         for scale in [1., 1.75, 1., 2.] {
             source
-                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .render_frame(&mut scene, &mut text, (1120, 820), scale)
                 .unwrap();
             let flattened = scene.flattened();
             let effects: Vec<_> = flattened

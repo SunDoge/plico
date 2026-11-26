@@ -2,11 +2,11 @@
 
 use plico::prelude::*;
 use plico::{CalendarState, WeekStart};
-use plico_runtime::{HostAction, HostView, Source};
+use plico_runtime::{EffectPayload, EffectQueue, EffectRequest, HostView, Source};
 
 #[derive(Default)]
 struct Counter {
-    action: Option<HostAction>,
+    effects: EffectQueue,
     count: u32,
     page: usize,
     effect: usize,
@@ -21,8 +21,8 @@ struct Counter {
 }
 
 impl HostView for Counter {
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.action.take()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.effects.pop()
     }
     fn theme(&self) -> Theme {
         if self.dark {
@@ -101,7 +101,9 @@ impl HostView for Counter {
                 self.increment_at = Some(cx.time().now + std::time::Duration::from_secs(2));
             }
             if button(cx).text("Open Plico on GitHub").clicked() {
-                self.action = Some(HostAction::OpenUrl("https://github.com/SunDoge/plico".into()));
+                self.effects.push(EffectPayload::OpenUrl {
+                    url: "https://github.com/SunDoge/plico".into(),
+                });
             }
             column(cx).position(Position::Relative).width_percent(100.).height(24.) + |cx| {
                 shader(cx, &plico::shader_asset!("color_bands.wgsl")).width_percent(100.).height_percent(100.);

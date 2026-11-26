@@ -66,12 +66,11 @@ fn run() -> Result<std::process::ExitCode, Error> {
             let subscriber =
                 subscriber.with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE);
             let _ = subscriber.try_init();
-            plico_desktop::run_source_with_options(
+            plico_desktop::run_source(
                 plico_desktop::Source::new(backend_settings::ImmediateSettings::default()),
                 plico_desktop::WindowOptions::new()
                     .title("Plico settings — wgpu")
-                    .initial_inner_size(1100, 820)
-                    .renderer(plico_renderer::RenderBackend::Wgpu),
+                    .initial_inner_size(1100, 820),
             )
             .context(WgpuSnafu)?;
             Ok(std::process::ExitCode::SUCCESS)

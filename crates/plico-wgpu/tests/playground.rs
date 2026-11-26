@@ -59,7 +59,7 @@ fn render(
     renderer.configure_text(&mut text, scale).unwrap();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (320, 240), scale)
+        .render_frame(&mut scene, &mut text, (320, 240), scale)
         .unwrap();
     assert_eq!(source.shader_diagnostics().count(), 0);
     renderer

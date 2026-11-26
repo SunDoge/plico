@@ -1,6 +1,6 @@
 //! User-facing view adapters and the advanced host contract.
-use crate::HostAction;
 use plico::Theme;
+use plico_renderer::{EffectCompletion, EffectRequest};
 
 /// Adapt an ordinary application view to the native host contract.
 ///
@@ -23,7 +23,7 @@ impl<V: plico::View> HostView for NativeView<V> {
 ///
 /// Ordinary applications implement `plico::View`; `plico-app-host` adapts
 /// `plico_dev::App` without coupling this runtime to the development protocol.
-/// `HostView` adds host actions and native wakeups.
+/// `HostView` adds host effects and native wakeups.
 /// Consuming an event automatically requests a settling declaration.
 pub trait HostView {
     /// A meaningful native input or accepted accessibility action occurred.
@@ -35,9 +35,13 @@ pub trait HostView {
     fn on_unhandled_key(&mut self, _key: &plico_renderer::KeyEvent) -> bool {
         false
     }
-    /// Drain one OS action. Actions remain native and never enter view snapshots.
-    fn take_host_action(&mut self) -> Option<HostAction> {
+    /// Drain one native effect request from a successful declaration or event.
+    fn take_effect(&mut self) -> Option<EffectRequest> {
         None
+    }
+    /// Consume an effect result. Return true to request a fresh declaration.
+    fn complete_effect(&mut self, _completion: EffectCompletion) -> bool {
+        false
     }
     fn set_frame_time(&mut self, _time: plico::FrameTime) {}
     fn set_wake_callback(&mut self, _wake: plico_renderer::WakeCallback) {}

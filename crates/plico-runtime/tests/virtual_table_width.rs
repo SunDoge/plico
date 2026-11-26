@@ -1,6 +1,6 @@
 //! Zero-basis table cells need a concrete, full-width virtual viewport and row.
 use plico::prelude::*;
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use plico_runtime::{HostView, Source};
 struct Table;
 impl HostView for Table {
@@ -42,7 +42,7 @@ fn virtual_rows_and_flex_cells_follow_viewport_width_after_resize() {
     let mut scene = Scene::new();
     for width in [400, 640, 300] {
         source
-            .render_retained_frame(&mut scene, &mut text, (width, 300), 1.)
+            .render_frame(&mut scene, &mut text, (width, 300), 1.)
             .unwrap();
         let port = source
             .placed_nodes()

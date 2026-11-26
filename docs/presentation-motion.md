@@ -22,6 +22,13 @@ fn tile(cx: &mut UiContext, x: f32, y: f32, scale: f32) {
 也可以像 2048 一样由应用从注入时钟采样关键帧，直接声明 translate/scale，
 不再通过反复修改 absolute 坐标、尺寸和字号来完成动画。应用仍不维护 changed。
 
+有静止落点的共享元素可以用 `PinnedRect::new(rest, shown)` 和
+`Layout::pinned_rect`。两个矩形都按 `[左, 上, 宽, 高]` 使用父容器的逻辑坐标。
+应用从弹簧或时间轴算出当前矩形 `shown`。框架以 `rest` 为布局基准，用绘制变换保留
+小数像素位移和均匀缩放。等比例缩放复用布局尺寸，比例变化时才调整裁切所需的布局高度。
+有内层图片时，`PinnedRect::to_local` 可把它的当前矩形映射到无内边距、无边框的外层容器中。
+Stillroom 用这套接口组合飞行中的裁切框和照片，Gallery 的 2048 方块也用它对齐落点。
+
 ## 失效分类
 
 `Changes` 使用 u16 bitflags，区分事件请求与下游失效：
@@ -85,6 +92,10 @@ MyGO `ui/runtime.go` 的 `repaintFrame` 和 `ui/repaint.go` 的局部重绘是�
 编码，覆盖背景折射、打开中关闭、退场中重开和最终卸载。
 
 ## 程序化动效
+
+`ContentTransition` 从宿主时钟采样离散内容的替换，返回旧值、新值和线性进度。
+应用决定如何绘制或映射曲线。首次声明与开启减弱动效时直接显示目标，结束后停止请求帧。
+Stillroom 的筛选和选片、Gallery 的数字滚动共用这一状态。
 
 `cx.loop_phases` 用同一个时钟提供循环编号和阶段。把同一阶段传给多个控件，它们就能在
 同一帧启动。它只在阶段边界申请唤醒。需要连续插值的属性可以继续用 `cx.timeline` 或

@@ -43,7 +43,7 @@ fn counter(cx: &mut UiContext, title: &str, count: &mut i32) {
 }
 
 fn main() -> Result<(), plico_desktop::DesktopError> {
-    plico_desktop::run_with_options(
+    plico_desktop::run(
         Application::default(),
         plico_desktop::WindowOptions::new()
             .title("Local and global counters")

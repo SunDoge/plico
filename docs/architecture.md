@@ -13,18 +13,16 @@
 `plico-renderer` API。应用从 `plico`/`plico-runtime`/`plico-desktop` 使用声明与窗口
 接口；渲染探针和后端实现直接依赖 `plico-renderer`，依赖所有权因此保持显式。
 
-测试遵循 MyGO `ui.Tester` 的封装方式：`plico_runtime::testing::Tester`（与底层
-`Driver` 为同一类型）不公开内部
+测试遵循 MyGO `ui.Tester` 的封装方式：`plico_runtime::testing::Tester` 不公开内部
 `Source`/Engine/Adapter，只提供 view 断言、受控状态更新、语义快照、声明快照、retained
 layout 查询、类型化事件与虚拟时钟。运行时缓存因此可以重构，而不要求应用测试绑定内部字段。
 需要验证缓存正确性时，`DifferentialTester` 以相同初始 view 冷启动并重放确定性操作，逐项
 比较长期增量实例与完整重放实例的声明、语义、布局、hit-test 和 Scene 投影；它不进入产品
 运行路径，也不把 Adapter 缓存公开为测试协议。
 
-测试、capture、recipe、Web 与 Bevy 等需要处理失败的调用方使用
-`try_prepare_for_event`、`try_build_frame`、`try_render_retained_frame` 和
-`try_build_and_paint`，声明或时钟错误沿当前调用直接返回。动态窗口宿主的
-`FrameSource::prepare_for_event`、`render_retained_frame` 与 `build_and_paint` 同样返回
+原生、Web、Bevy 与离屏捕获通过 `render_frame` 构建场景。预览脚本可用 `prepare_layout`
+提交布局后派发事件。测试读取拥有所有权的节点时使用 `try_build_frame`。
+窗口宿主通过 `FrameSource::prepare_for_event` 与 `FrameSource::render_frame` 获得
 `FrameSourceError`；shell 统一处理遥测、首帧失败与截图完成，不再由 runtime 记录日志后伪装
 成成功事务。后续按同一方向
 先补齐查询和受控更新接口，再逐步收回仍公开的 Engine、Adapter 与 view 字段，避免一次机械
@@ -36,7 +34,7 @@ Engine 与 Adapter 的内部字段。性能工具读取只读 `FrameDiagnostics`
 后端统计不再是可由调用方改写的 `Source` 状态。CI 的
 `scripts/check-runtime-boundary.py` 禁止生产应用、宿主、可运行 examples 与性能 probes 重新
 穿透这条边界。历史集成测试分批
-迁往 `testing::Driver` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
+迁往 `testing::Tester` 或同一稳定查询面；已迁移的 `backend-settings`、`launcher` 与
 `services-demo` 测试也由边界脚本守卫。
 Gallery 的 calendar、2048、mines、glass、markdown 与 wgpu 测试已全部按同一方式迁移。
 `plico-wgpu` 后端测试也只读取 retained nodes、语义、shader diagnostics 与帧诊断，不再将
@@ -138,10 +136,10 @@ Engine：按 (parent Entity, scope, local Key) 找回节点
   `services::render` 的 split-host 调用点要求 snapshot 可反序列化、command 可序列化。
 - `plico_runtime::HostView` 面向后端与高级宿主，增加 host action、wake 和宿主更新
   能力。`Source<V>` 与
-  `plico_desktop::run_host_view_with_options` 接收这一接口。
+  `plico_desktop::run_source` 接收由 `Source::new(host_view)` 构造的帧源。
 
 普通 `View` 由 `NativeView<V>` 适配到 `HostView`；
-`plico_desktop::run_view_with_options` 自动完成该包装，不要求序列化应用状态。
+`plico_desktop::run_view` 自动完成该包装，不要求序列化应用状态。
 `plico-app-host` 中的 `NativeApp<A>` / `ServiceView<A, S>` 把 App 与 services
 协议接入 `HostView`；二者都接收已经构造的实例，不继承 split-host 的恢复约束。桌面 crate
 重新导出它们。这样 `plico-runtime` 本身不依赖

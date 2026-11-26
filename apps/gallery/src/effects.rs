@@ -84,7 +84,7 @@ fn glass_controls(cx: &mut UiContext, state: &mut GlassControls, paused: bool) {
             .children(|cx| {
                 liquid::glass_checkbox(cx, "Show labels", &mut state.checked);
                 liquid::glass_switch(cx, "Highlight", &mut state.enabled);
-                liquid::range_slider(cx, "Intensity", &mut state.level, 0.0..=100., 1., 164.);
+                liquid::glass_slider(cx, "Intensity", &mut state.level, 0.0..=100., 1., 164.);
             });
         row(cx)
             .wrap(true)

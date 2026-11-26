@@ -3023,7 +3023,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plico"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "bitflags",
  "plico-macros",
@@ -3040,7 +3040,7 @@ dependencies = [
 
 [[package]]
 name = "plico-app-host"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "plico",
  "plico-dev",
@@ -3049,7 +3049,7 @@ dependencies = [
 
 [[package]]
 name = "plico-desktop"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "image",
  "peniko",
@@ -3064,11 +3064,12 @@ dependencies = [
  "serde",
  "serde_json",
  "snafu",
+ "tempfile",
 ]
 
 [[package]]
 name = "plico-dev"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "plico",
  "rkyv",
@@ -3081,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "plico-macros"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -3091,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "plico-motion"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "plico",
  "serde",
@@ -3101,7 +3102,7 @@ dependencies = [
 
 [[package]]
 name = "plico-native"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "cairo-rs",
  "lru",
@@ -3122,7 +3123,7 @@ dependencies = [
 
 [[package]]
 name = "plico-platform"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "bitflags",
  "directories",
@@ -3132,7 +3133,7 @@ dependencies = [
 
 [[package]]
 name = "plico-renderer"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "bitflags",
  "bytemuck",
@@ -3158,7 +3159,7 @@ dependencies = [
 
 [[package]]
 name = "plico-runtime"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "kurbo",
  "peniko",
@@ -3177,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "plico-shell"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -3209,12 +3210,13 @@ dependencies = [
  "tracing",
  "url",
  "winit",
+ "x11rb",
  "zbus",
 ]
 
 [[package]]
 name = "plico-wasm"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "notify",
  "rkyv",
@@ -3223,7 +3225,7 @@ dependencies = [
 
 [[package]]
 name = "plico-wgpu"
-version = "0.4.3"
+version = "0.4.6"
 dependencies = [
  "block2 0.6.2",
  "bytemuck",

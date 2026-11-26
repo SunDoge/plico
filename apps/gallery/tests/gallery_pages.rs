@@ -1,11 +1,11 @@
 #![cfg(feature = "host")]
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 use plico_renderer::{SemanticRole, SemanticToggleState};
 
-fn driver(page: Page) -> Driver<Gallery> {
-    Driver::new(
+fn driver(page: Page) -> Tester<Gallery> {
+    Tester::new(
         Gallery {
             router: Router::new(page),
             ..Default::default()
@@ -15,7 +15,7 @@ fn driver(page: Page) -> Driver<Gallery> {
     )
     .unwrap()
 }
-fn click(driver: &mut Driver<Gallery>, role: &str, label: &str) {
+fn click(driver: &mut Tester<Gallery>, role: &str, label: &str) {
     driver
         .execute(Command::Click {
             role: role.into(),
@@ -194,7 +194,7 @@ fn tree_scopes_keep_independent_selection_and_restore_after_navigation() {
 
 #[test]
 fn chinese_status_filter_and_select_visible_use_the_same_rows() {
-    let mut d = Driver::new(
+    let mut d = Tester::new(
         Gallery {
             language: gallery::i18n::Language::Chinese,
             router: Router::new(Page::DataTable),

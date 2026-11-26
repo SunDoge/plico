@@ -1,9 +1,10 @@
+use plico::widgets::{row, text};
 use plico::{Engine, FrameError, UiContext};
 
 fn list(ui: &mut UiContext<'_>, ids: &[u64]) {
     for id in ids {
-        ui.row().key(*id).children(|ui| {
-            ui.text("value").key("value");
+        row(ui).key(*id).children(|ui| {
+            text(ui, "value").key("value");
         });
     }
 }
@@ -55,7 +56,7 @@ fn ordered_hint_checks_scope_and_duplicate_keys_after_reuse() {
     let scoped = |ui: &mut UiContext<'_>, scopes: &[u64]| {
         for scope in scopes {
             ui.keyed(*scope, |ui| {
-                ui.text("scoped").key("same");
+                text(ui, "scoped").key("same");
             });
         }
     };
@@ -103,7 +104,7 @@ fn unchanged_rejected_style_is_never_accepted_by_the_validation_cache() {
         }
         engine
             .frame_declarations(|ui| {
-                ui.text("text").key("value");
+                text(ui, "text").key("value");
             })
             .unwrap();
     }

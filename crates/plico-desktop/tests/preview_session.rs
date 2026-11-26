@@ -1,6 +1,6 @@
 #![cfg(feature = "wgpu")]
 use plico::prelude::*;
-use plico_desktop::{HostView, PreviewScenario, PreviewSession, RenderBackend};
+use plico_desktop::{CaptureSession, HostView, PreviewScenario};
 
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
@@ -49,13 +49,9 @@ fn recipe(index: usize) -> PreviewScenario<Fixture> {
 #[ignore = "requires a working wgpu adapter"]
 fn shared_renderer_resets_app_input_clock_viewport_and_survives_recipe_errors() {
     let expected: Vec<_> = (0..3)
-        .map(|index| {
-            recipe(index)
-                .render_with_backend(RenderBackend::Wgpu, create)
-                .unwrap()
-        })
+        .map(|index| recipe(index).render(create).unwrap())
         .collect();
-    let mut session = PreviewSession::new(RenderBackend::Wgpu);
+    let mut session = CaptureSession::default();
     for index in [0, 1, 2, 2, 1, 0] {
         let actual = recipe(index).render_in(&mut session, create).unwrap();
         assert_eq!(actual, expected[index], "recipe {index}");

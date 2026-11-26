@@ -331,6 +331,18 @@ impl Layout<'_, '_> {
         self.style.scale = [x, y];
         self
     }
+    /// Lay out a shared element at its resting origin and present it at a
+    /// sampled rectangle. Installs the absolute placement, size, translation
+    /// and scale; use this on the outer wrapper of the moving subtree.
+    pub fn pinned_rect(self, pose: crate::PinnedRect) -> Self {
+        let [width, height] = pose.layout_size();
+        self.absolute(pose.origin[0], pose.origin[1])
+            .width(width)
+            .height(height)
+            .translate(pose.translation[0], pose.translation[1])
+            .scale(pose.scale(), pose.scale())
+    }
+
     /// Place this container relative to its containing block, outside flex flow.
     #[inline(always)]
     pub fn absolute(mut self, left: f32, top: f32) -> Self {

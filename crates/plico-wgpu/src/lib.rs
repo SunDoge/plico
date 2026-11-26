@@ -78,7 +78,7 @@ pub mod text;
 mod texture;
 pub use external::ExternalTexture;
 pub use renderer::LayerPoolStats;
-pub use renderer::{FrameBatchStats, FrameBudget, Renderer};
+pub use renderer::{FrameBatchStats, Renderer};
 
 /// Native display connection kept alive by a window host.
 ///

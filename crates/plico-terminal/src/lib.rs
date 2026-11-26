@@ -15,9 +15,10 @@ use std::time::{Duration, Instant};
 
 use kurbo::{Affine, Rect, Stroke};
 use peniko::{Color, Fill};
+use plico_renderer::platform::{EffectId, EffectPayload, EffectQueue, EffectResult, WindowCommand};
 use plico_renderer::{
-    HostAction, ImeEvent, KeyPhase, Modifiers, PointerButton, PointerPhase, UiEvent,
-    WHEEL_LINE_DELTA, WakeCallback,
+    EffectCompletion, EffectRequest, ImeEvent, KeyPhase, Modifiers, PointerButton, PointerPhase,
+    UiEvent, WHEEL_LINE_DELTA, WakeCallback,
 };
 use plico_renderer::{PaintScene, Scene};
 #[cfg(test)]
@@ -288,12 +289,11 @@ pub struct TerminalWidget {
     exit_reported: bool,
     launch_error: Option<String>,
     pending_input: Vec<u8>,
-    pending_host_actions: VecDeque<HostAction>,
+    effects: EffectQueue,
     pending_node_events: VecDeque<TerminalNodeEvent>,
     last_reported_selection: TerminalSelectionSnapshot,
     last_reported_directory: Option<PathBuf>,
-    pending_clipboard_loads: HashMap<u64, ClipboardFormatter>,
-    next_clipboard_request_id: u64,
+    pending_clipboard_loads: HashMap<EffectId, ClipboardFormatter>,
     allow_clipboard_read: bool,
     sync_window_title: bool,
     size: TerminalSize,
@@ -369,12 +369,11 @@ impl TerminalWidget {
             exit_reported: false,
             launch_error: None,
             pending_input: Vec::new(),
-            pending_host_actions: VecDeque::new(),
+            effects: EffectQueue::default(),
             pending_node_events: VecDeque::new(),
             last_reported_selection: TerminalSelectionSnapshot::default(),
             last_reported_directory: None,
             pending_clipboard_loads: HashMap::new(),
-            next_clipboard_request_id: 1,
             allow_clipboard_read: false,
             sync_window_title: false,
             size,
@@ -754,17 +753,13 @@ impl TerminalWidget {
             RioEvent::ResetTitle => {
                 self.report_terminal_title(None, None);
             }
-            RioEvent::ClipboardStore(_, text) => self
-                .pending_host_actions
-                .push_back(HostAction::SetClipboard(text)),
+            RioEvent::ClipboardStore(_, text) => {
+                self.effects.push(EffectPayload::ClipboardWrite { text });
+            }
             RioEvent::ClipboardLoad(_, _, formatter) => {
                 if self.allow_clipboard_read {
-                    let request_id = self.next_clipboard_request_id;
-                    self.next_clipboard_request_id =
-                        self.next_clipboard_request_id.wrapping_add(1).max(1);
-                    self.pending_clipboard_loads.insert(request_id, formatter);
-                    self.pending_host_actions
-                        .push_back(HostAction::ReadClipboard { request_id });
+                    let id = self.effects.push(EffectPayload::ClipboardRead);
+                    self.pending_clipboard_loads.insert(id, formatter);
                 } else {
                     self.send_bytes(formatter("").into_bytes());
                 }
@@ -787,8 +782,8 @@ impl TerminalWidget {
                 return true;
             }
             RioEvent::Bell(_) => {
-                self.pending_host_actions
-                    .push_back(HostAction::RequestAttention);
+                self.effects
+                    .push(EffectPayload::window(WindowCommand::RequestAttention));
                 self.pending_node_events
                     .push_back(TerminalNodeEvent::json(TerminalEventKind::Bell, "{}"));
             }
@@ -821,8 +816,11 @@ impl TerminalWidget {
 
     fn report_terminal_title(&mut self, title: Option<String>, subtitle: Option<String>) {
         if self.sync_window_title {
-            self.pending_host_actions
-                .push_back(HostAction::SetWindowTitle(title.clone()));
+            self.effects.push(EffectPayload::window(
+                title
+                    .clone()
+                    .map_or(WindowCommand::RestoreTitle, WindowCommand::SetTitle),
+            ));
         }
         self.pending_node_events.push_back(TerminalNodeEvent::json(
             TerminalEventKind::TitleChange,

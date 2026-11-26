@@ -129,7 +129,6 @@ impl<V: plico::View + Default + 'static> Plugin for PlicoPlugin<V> {
         app.init_non_send::<PlicoUi<V>>()
             .init_resource::<PlicoOutput>()
             .init_resource::<PlicoInput>()
-            .add_message::<PlicoHostAction>()
             .add_message::<PlicoClipboardRequest>()
             .add_systems(
                 PreUpdate,
@@ -160,9 +159,6 @@ impl<V: plico::View + Default + 'static> Plugin for PlicoPlugin<V> {
     }
 }
 
-/// OS actions emitted by widgets. The embedding app decides how to execute them.
-#[derive(Message)]
-pub struct PlicoHostAction(pub plico_renderer::HostAction);
 /// Clipboard requests from text controls. Respond to reads with
 /// `ui.send_event(UiEvent::Paste(text))`; writes contain the selected text.
 #[derive(Message)]
@@ -203,7 +199,6 @@ fn prepare<V: plico::View + 'static>(
     queue: Option<Res<RenderQueue>>,
     adapter: Option<Res<RenderAdapter>>,
     mut output: ResMut<PlicoOutput>,
-    mut host_actions: MessageWriter<PlicoHostAction>,
 ) {
     let Ok((entity, mut window, current_cursor)) = windows.single_mut() else {
         output.0 = None;
@@ -239,14 +234,13 @@ fn prepare<V: plico::View + 'static>(
             renderer
                 .configure_text(&mut ui.text, scale)
                 .map_err(|source| Error::Render { source })?;
-            ui.source.set_device_scale(scale);
             ui.scale = scale;
         }
         let resized = size != ui.size;
         ui.source.poll_async();
         let previous = ui.scene.clone();
         ui.source
-            .try_render_retained_frame(
+            .render_frame(
                 &mut ui.scene,
                 &mut ui.text,
                 (
@@ -330,9 +324,6 @@ fn prepare<V: plico::View + 'static>(
                 ime.cursor_area[0] as f32,
                 (ime.cursor_area[1] + ime.cursor_area[3]) as f32,
             );
-        }
-        while let Some(action) = ui.source.take_host_action() {
-            host_actions.write(PlicoHostAction(action));
         }
         Ok(())
     })();

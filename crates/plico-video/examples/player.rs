@@ -1,4 +1,5 @@
 use plico::prelude::*;
+use plico_desktop::{EffectPayload, EffectQueue, EffectRequest};
 use plico_desktop::{HostView, SurfaceSource, WindowOptions};
 use plico_video::Player;
 struct Demo {
@@ -7,6 +8,7 @@ struct Demo {
     status_key: (u64, bool, bool),
     started: Option<std::time::Duration>,
     close: bool,
+    effects: EffectQueue,
     limit: Option<f64>,
 }
 impl HostView for Demo {
@@ -17,10 +19,12 @@ impl HostView for Demo {
         self.status_key = key;
         changed
     }
-    fn take_host_action(&mut self) -> Option<plico_desktop::HostAction> {
-        std::mem::take(&mut self.close).then_some(plico_desktop::HostAction::Window(
-            plico_desktop::WindowCommand::Close,
-        ))
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        if std::mem::take(&mut self.close) {
+            self.effects
+                .push(EffectPayload::window(plico_desktop::WindowCommand::Close));
+        }
+        self.effects.pop()
     }
     #[component]
     #[rustfmt::skip]
@@ -72,8 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("usage: player <file-or-url>")?;
     let player = Player::open(path, 1280, 720, false)?;
     let surface = player.surface();
-    let renderer = plico_desktop::RenderBackend::Wgpu;
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         SurfaceSource::new(
             Demo {
                 player,
@@ -81,6 +84,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 status_key: (0, false, false),
                 started: None,
                 close: false,
+                effects: EffectQueue::default(),
                 limit: std::env::var("PLICO_VIDEO_PROBE_SECONDS")
                     .ok()
                     .and_then(|s| s.parse().ok()),
@@ -91,8 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         WindowOptions::new()
             .title("Plico video experiment")
             .initial_inner_size(1000, 700)
-            .min_inner_size(640, 420)
-            .renderer(renderer),
+            .min_inner_size(640, 420),
     )?;
     Ok(())
 }

@@ -43,17 +43,6 @@ pub enum WindowBackground {
     MicaAlt,
 }
 
-/// Graphics consumer selected by the native window host.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RenderBackend {
-    /// Use the maintained renderer compiled by the host.
-    #[default]
-    Auto,
-    /// Independent wgpu consumer; requires the shell's `wgpu` feature.
-    Wgpu,
-}
-
 bitflags::bitflags! {
     /// Edges that may start a resize gesture on a custom, undecorated window.
     /// Native decorations and compositor shortcuts are controlled by the OS;
@@ -80,9 +69,6 @@ impl Default for WindowResizeEdges {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowOptions {
-    /// Renderer used by the native window host.
-    #[serde(default)]
-    pub renderer: RenderBackend,
     /// Initial native window title.
     pub title: String,
     /// Requested logical client-area size.
@@ -153,7 +139,6 @@ fn default_window_shadow() -> bool {
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
-            renderer: RenderBackend::Auto,
             title: "plico".into(),
             initial_inner_size: (800, 600),
             initial_position: None,
@@ -197,12 +182,6 @@ impl WindowOptions {
             .window_level(WindowLevel::AlwaysOnTop)
             .input_mode(WindowInputMode::Passthrough)
             .activate_on_show(false)
-    }
-
-    /// Select the graphics consumer without changing the application source.
-    pub fn renderer(mut self, renderer: RenderBackend) -> Self {
-        self.renderer = renderer;
-        self
     }
 
     /// Set the initial native window title.
@@ -366,7 +345,7 @@ impl WindowOptions {
     }
 }
 
-/// Command addressed to a Wabou-managed native window.
+/// Command addressed to a native window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WindowCommand {
@@ -384,6 +363,10 @@ pub enum WindowCommand {
     ToggleFullscreen,
     /// Replace the native window title.
     SetTitle(String),
+    /// Restore the title supplied in the initial window options.
+    RestoreTitle,
+    /// Request an informational window manager attention indicator.
+    RequestAttention,
     /// Enable or disable native window-manager decorations at runtime.
     SetDecorations(bool),
     /// Begin an OS-managed window drag from the current pointer gesture.
@@ -440,15 +423,16 @@ mod tests {
 }
 
 #[cfg(test)]
-mod backend_tests {
+mod compatibility_tests {
     use super::*;
+
     #[test]
-    fn old_window_options_default_to_auto() {
+    fn window_options_accept_the_old_renderer_field() {
         let mut value = serde_json::to_value(WindowOptions::new()).unwrap();
-        value.as_object_mut().unwrap().remove("renderer");
-        value.as_object_mut().unwrap().remove("activateOnShow");
+        let object = value.as_object_mut().unwrap();
+        object.insert("renderer".into(), serde_json::json!("wgpu"));
+        object.remove("activateOnShow");
         let old: WindowOptions = serde_json::from_value(value).unwrap();
-        assert_eq!(old.renderer, RenderBackend::Auto);
         assert!(old.activate_on_show);
     }
 }

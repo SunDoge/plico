@@ -4,7 +4,7 @@ use plico::Theme;
 use plico::prelude::*;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 
 #[derive(Default)]
@@ -27,7 +27,7 @@ fn channels(packed: u32) -> [u8; 3] {
     ]
 }
 
-fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
+fn input_border(ui: &Tester<Demo>) -> [u8; 3] {
     let (_, color) = ui
         .placed_nodes()
         .iter()
@@ -40,7 +40,7 @@ fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
 #[test]
 fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     let theme = Theme::default();
-    let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
+    let mut ui = Tester::new(Demo::default(), 480, 240).unwrap();
     let rest = theme.blend(Color::Border, Color::Foreground, 0.35);
     assert_eq!(input_border(&ui), channels(theme.resolve(rest)));
     let fill = ui
@@ -92,8 +92,8 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
 
 #[test]
 fn focused_text_input_uses_one_accent_border_without_a_generic_outer_ring() {
-    let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
-    let input = |ui: &Driver<Demo>| {
+    let mut ui = Tester::new(Demo::default(), 480, 240).unwrap();
+    let input = |ui: &Tester<Demo>| {
         ui.placed_nodes()
             .iter()
             .find(|node| node.paint.border.is_some())

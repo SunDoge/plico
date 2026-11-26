@@ -333,7 +333,8 @@ the track picks the nearer thumb; arrows, PageUp/Down, Home and End move the
 focused thumb. Each thumb is a separate Tab stop. Assistive technology sees a
 named group containing `label minimum` and `label maximum` sliders, each with
 its own value and numeric actions; the group itself does not duplicate a
-numeric value.
+numeric value. Configure the builder with the same methods as `slider`.
+Use `.changed()` to check whether input changed either thumb.
 
 ### Number input (MyGO port)
 
@@ -431,7 +432,7 @@ retained geometry and invalidates the scene without running Taffy. Current wheel
 handling still goes through the normal immediate declaration path. This is not
 virtualization; horizontal scroll, inertia and auto-hide are not implemented.
 
-`plico_desktop::run_view_with_options` accepts a `View` without serialization.
+`plico_desktop::run_view` accepts a `View` without serialization.
 Service handles and sensitive application data remain ordinary host-owned Rust
 state. `plico dev` recompiles and restarts the static executable; no dynamic
 loader, App reload protocol or ABI feature is involved.

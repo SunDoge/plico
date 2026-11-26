@@ -139,7 +139,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+        .render_frame(&mut scene, &mut text, (800, 600), 1.)
         .unwrap();
     let (mut total, mut layout, mut flatten) = (Vec::new(), Vec::new(), Vec::new());
     let (mut sum_total, mut sum_flatten, mut calls, mut visits) = (0., 0., 0, 0);
@@ -166,7 +166,7 @@ fn run(rows: usize, case: Case, counters: &Arc<Mutex<Counters>>) {
         *counters.lock().unwrap() = Counters::default();
         let start = Instant::now();
         let (_, _, scene_ms) = source
-            .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+            .render_frame(&mut scene, &mut text, (800, 600), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
         if i >= 40 {
@@ -222,7 +222,7 @@ fn run_gallery(page: gallery::Page, label: &str, resize: bool, counters: &Arc<Mu
         *counters.lock().unwrap() = Counters::default();
         let start = Instant::now();
         let (_, _, scene_ms) = source
-            .render_retained_frame(&mut scene, &mut text, (width, 850), 1.)
+            .render_frame(&mut scene, &mut text, (width, 850), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
         if frame >= 60 {

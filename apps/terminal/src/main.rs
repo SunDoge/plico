@@ -93,7 +93,7 @@ mod native {
             "terminal",
         )
         .with_events(terminal_event);
-        plico_desktop::run_source_with_options(
+        plico_desktop::run_source(
             source,
             WindowOptions::new()
                 .title("Plico Terminal")

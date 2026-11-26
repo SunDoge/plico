@@ -2,10 +2,10 @@
 
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 use plico_renderer::SemanticRole;
 
-fn click(driver: &mut Driver<Gallery>, label: &str) {
+fn click(driver: &mut Tester<Gallery>, label: &str) {
     driver
         .execute(Command::Click {
             role: "button".into(),
@@ -17,7 +17,7 @@ fn click(driver: &mut Driver<Gallery>, label: &str) {
 
 #[test]
 fn ports_connect_and_node_deletion_cascades_edges() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::NodeEditor),
             ..Default::default()
@@ -45,7 +45,7 @@ fn ports_connect_and_node_deletion_cascades_edges() {
 
 #[test]
 fn dragging_a_header_moves_the_graph_node_in_graph_coordinates() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::NodeEditor),
             ..Default::default()

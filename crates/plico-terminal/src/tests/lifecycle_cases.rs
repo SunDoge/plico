@@ -345,10 +345,12 @@ fn osc_titles_are_node_scoped_while_clipboard_store_remains_a_host_action() {
 
     assert!(widget.poll_async());
     assert_eq!(
-        widget.take_host_action(),
-        Some(HostAction::SetClipboard("hello".into()))
+        widget.take_effect().map(|request| request.payload),
+        Some(EffectPayload::ClipboardWrite {
+            text: "hello".into()
+        })
     );
-    assert_eq!(widget.take_host_action(), None);
+    assert_eq!(widget.take_effect(), None);
     let title = widget.take_node_event().expect("title node event");
     assert_eq!(title.event_code, event::TERMINALTITLECHANGE);
     assert_eq!(
@@ -361,20 +363,22 @@ fn osc_titles_are_node_scoped_while_clipboard_store_remains_a_host_action() {
     synced.feed(b"\x1b]0;synced shell\x07");
     synced.poll_async();
     assert_eq!(
-        synced.take_host_action(),
-        Some(HostAction::SetWindowTitle(Some("synced shell".into())))
+        synced.take_effect().map(|request| request.payload),
+        Some(EffectPayload::window(WindowCommand::SetTitle(
+            "synced shell".into()
+        )))
     );
     synced.attribute_removed("sync-window-title");
     assert!(!synced.sync_window_title);
     assert_eq!(
-        synced.take_host_action(),
-        Some(HostAction::SetWindowTitle(None))
+        synced.take_effect().map(|request| request.payload),
+        Some(EffectPayload::window(WindowCommand::RestoreTitle))
     );
     synced.attribute_changed("sync-window-title", "true");
     synced.unmount();
     assert_eq!(
-        synced.take_host_action(),
-        Some(HostAction::SetWindowTitle(None))
+        synced.take_effect().map(|request| request.payload),
+        Some(EffectPayload::window(WindowCommand::RestoreTitle))
     );
 }
 
@@ -420,7 +424,7 @@ fn terminal_subtitle_and_title_reset_remain_scoped_to_the_widget_node() {
         .send_event(RioEvent::ResetTitle, WindowId::from(0));
 
     widget.poll_async();
-    assert_eq!(widget.take_host_action(), None);
+    assert_eq!(widget.take_effect(), None);
     let titled = widget.take_node_event().expect("title event");
     assert_eq!(titled.event_code, event::TERMINALTITLECHANGE);
     assert_eq!(
@@ -582,19 +586,20 @@ fn osc_clipboard_read_requires_opt_in_and_formats_the_reply() {
     let mut denied = TerminalWidget::headless(20, 4);
     denied.feed(b"\x1b]52;c;?\x07");
     assert!(denied.poll_async());
-    assert_eq!(denied.take_host_action(), None);
+    assert_eq!(denied.take_effect(), None);
     assert_eq!(denied.take_input(), b"\x1b]52;c;\x07");
 
     let mut allowed = TerminalWidget::headless(20, 4);
     allowed.attribute_changed("allow-clipboard-read", "true");
     allowed.feed(b"\x1b]52;c;?\x07");
     assert!(allowed.poll_async());
-    let request_id = match allowed.take_host_action() {
-        Some(HostAction::ReadClipboard { request_id }) => request_id,
-        action => panic!("expected clipboard read, got {action:?}"),
-    };
-    assert!(allowed.take_input().is_empty());
-    allowed.deliver_clipboard_text(request_id, Some("hello".into()));
+    let request = allowed.take_effect().expect("clipboard read request");
+    assert_eq!(request.payload, EffectPayload::ClipboardRead);
+    allowed.complete_effect(EffectCompletion {
+        id: request.id,
+        op: request.payload.op(),
+        result: EffectResult::ClipboardText(Some("hello".into())),
+    });
     assert_eq!(allowed.take_input(), b"\x1b]52;c;aGVsbG8=\x07");
 
     allowed.attribute_removed("allow-clipboard-read");
@@ -706,8 +711,8 @@ fn cursor_blink_mode_and_bell_reach_the_frontend() {
     assert!(!widget.terminal.lock().blinking_cursor);
     assert!(widget.next_cursor_blink.is_none());
     assert_eq!(
-        widget.take_host_action(),
-        Some(HostAction::RequestAttention)
+        widget.take_effect().map(|request| request.payload),
+        Some(EffectPayload::window(WindowCommand::RequestAttention))
     );
     assert_eq!(
         widget.take_node_event(),

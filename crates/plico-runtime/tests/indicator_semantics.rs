@@ -1,6 +1,7 @@
 //! The MyGO ports must project their roles into the semantic tree, where the
 //! native accessibility bridges read them.
 use plico::UiContext;
+use plico::widgets::text;
 use plico::widgets::{
     MeterLevels, breadcrumbs, meter, progress, sidebar, sidebar_item, sidebar_section, split,
     stepper,
@@ -34,10 +35,10 @@ impl HostView for Trails {
             cx,
             &mut pane,
             |cx| {
-                cx.text("Left");
+                text(cx, "Left");
             },
             |cx| {
-                cx.text("Right");
+                text(cx, "Right");
             },
         );
         let mut open = true;

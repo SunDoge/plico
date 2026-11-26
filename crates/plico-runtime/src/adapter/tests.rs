@@ -1,4 +1,5 @@
 use super::Adapter;
+use plico::widgets::{svg_source, text as ui_text};
 use plico::{Engine, Kind, UiContext};
 use plico_renderer::{TextContext, layout::PlacedNode};
 use std::{collections::HashMap, sync::Arc};
@@ -54,7 +55,7 @@ fn retained_nodes_survive_reorder_and_are_recreated_after_remount() {
     let mut text = TextContext::new();
     let draw = |ui: &mut UiContext<'_>, ids: &[u64]| {
         for id in ids {
-            ui.text("item").key(*id);
+            ui_text(ui, "item").key(*id);
         }
     };
 
@@ -92,8 +93,8 @@ fn full_layout_reconciles_removals_after_skipped_projection_frames() {
     let mut text = TextContext::new();
     engine
         .frame(|ui| {
-            ui.text("Keep").key("keep");
-            ui.text("Remove").key("remove");
+            ui_text(ui, "Keep").key("keep");
+            ui_text(ui, "Remove").key("remove");
         })
         .unwrap();
     layout(&mut adapter, &mut engine, &mut text, 300, 200);
@@ -103,7 +104,7 @@ fn full_layout_reconciles_removals_after_skipped_projection_frames() {
     for _ in 0..2 {
         engine
             .frame(|ui| {
-                ui.text("Keep").key("keep");
+                ui_text(ui, "Keep").key("keep");
             })
             .unwrap();
     }
@@ -121,7 +122,7 @@ fn asset_cache_pruning_is_linear_and_keeps_recently_unmounted_sources() {
     let mut text = TextContext::new();
     engine
         .frame(|ui| {
-            ui.svg_source(SOURCE.to_owned());
+            svg_source(ui, SOURCE.to_owned());
         })
         .unwrap();
     layout(&mut adapter, &mut engine, &mut text, 300, 200);
@@ -163,7 +164,7 @@ fn layout_cache_walk_reuses_one_iterative_stack() {
     engine
         .frame(|ui| {
             for id in 0_u64..64 {
-                ui.text("row").key(id);
+                ui_text(ui, "row").key(id);
             }
         })
         .unwrap();
@@ -200,7 +201,7 @@ fn profile_linear_asset_cache_liveness() {
     engine
         .frame(|ui| {
             for id in 0_u64..4_000 {
-                ui.text("row").key(id);
+                ui_text(ui, "row").key(id);
             }
         })
         .unwrap();

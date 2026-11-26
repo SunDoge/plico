@@ -183,7 +183,7 @@ HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外
 
 ## Frame budget 测量（CPU 阶段与 GPU 时间）
 
-`plico_wgpu::FrameBudget` 记录最近一帧渲染器的工作，窗口宿主经
+`plico_renderer::FrameBudgetSample` 记录最近一帧渲染器的工作，窗口宿主经
 `FrameStats::apply_budget` 以 EMA 合并到既有诊断；计数类字段保留当帧原值。
 
 与 MyGO 的逐帧阶段日志一致，`FrameStats` 同时保留一组不做 EMA 的相关样本：
@@ -915,7 +915,7 @@ XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland �
 根 `CommandEncoder`。每个子层仍使用独立且跨帧复用的 uniform/instance buffer，因此
 递归编码不会让后续 `write_buffer` 改写父层已经引用的数据。只有遍历场景时新发现的图片
 mip 链保留一个必须先执行的前缀 command buffer：普通帧一个 command buffer，冷图片帧
-最多两个，仍由一次 `queue.submit` 提交。`FrameBudget::command_buffers` 明确报告这个数。
+最多两个，仍由一次 `queue.submit` 提交。`FrameBudgetSample::command_buffers` 明确报告这个数。
 `PLICO_SPLIT_SUBMITS=1` 仅用于把这些 buffer 分开提交的诊断 A/B。
 
 本机 `effects-glass-hover` 场景中，实际提交次数从 6 降到 1。Intel iGPU 离屏 capture

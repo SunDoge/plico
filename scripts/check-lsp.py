@@ -61,7 +61,7 @@ try:
         if response(send('workspace/symbol',{'query':'Ui'},True)):break
         time.sleep(.5)
     source=(ROOT/'crates/plico/examples/settings.rs').read_text()
-    cases=[('component Ui','ui.text("Settings")','ui.tex','text'),('component builder','.font_size(if large { 28 } else { 20 })','.font_s','font_size'),('layout header','.padding(16)','.padd','padding'),('clock API','ui.text("Settings")','ui.no','now'),('frame request','ui.text("Settings")','ui.request_anim','request_animation_frame')]
+    cases=[('component constructor','text(ui, "Settings")','tex','text'),('component builder','.font_size(if large { 28 } else { 20 })','.font_s','font_size'),('layout header','.padding(16)','.padd','padding'),('clock API','text(ui, "Settings")','ui.no','now'),('frame request','text(ui, "Settings")','ui.request_anim','request_animation_frame')]
     settings_path=ROOT/'crates/plico/examples/settings.rs'
     cases=[(label,settings_path,source,old,prefix,expected) for label,old,prefix,expected in cases]
     custom_path=ROOT/'crates/plico/examples/custom_widget.rs'
@@ -76,9 +76,9 @@ try:
               ('switch disabled configuration',custom_path,custom,'.disabled(false)','.disa','disabled'),
               ('switch motion configuration',custom_path,custom,'.motion(Motion::Smooth)','.mot','motion'),
               ('checkbox response',custom_path,custom,'.response()','.res','response'),
-              ('generated icon constructor',custom_path,custom,'icon(cx, &plico::icons::FOLDER)','ico','icon'),
+              ('generated icon constructor',custom_path,custom,'icon(cx, &icons::FOLDER)','ico','icon'),
               ('SVG icon color',custom_path,custom,'.color(Color::Muted)','.col','color'),
-              ('full Lucide asset constant',custom_path,custom,'plico::icons::SEARCH','plico::icons::SEAR','SEARCH')]
+              ('generated Lucide asset constant',custom_path,custom,'icons::SEARCH','icons::SEAR','SEARCH')]
     composed_path=ROOT/'crates/plico/tests/composite_widgets.rs'
     composed=composed_path.read_text()
     cases += [('composed disclosure function',composed_path,composed,'collapsible','collap','collapsible'),
@@ -89,20 +89,20 @@ try:
               ('native text input response',input_path,input_source,'.response()','.res','response')]
     modal_path=ROOT/'apps/gallery/src/lib.rs'
     modal_source=modal_path.read_text()
-    cases += [('modal title builder',modal_path,modal_source,'.title("Workspace preferences")','.tit','title'),
+    cases += [('modal title builder',modal_path,modal_source,'.title(l.text("workspace-preferences", "Workspace preferences"))','.tit','title'),
               ('modal close context method',modal_path,modal_source,'ui.close_modal()','ui.close_m','close_modal')]
     gallery_path=ROOT/'apps/gallery/src/lib.rs'
     gallery_source=gallery_path.read_text()
     cases += [('shader animated builder',gallery_path,gallery_source,'.animated(true)','.anim','animated'),
-              ('shader uniforms builder',gallery_path,gallery_source,'.values(&[(0.8 + self.exposure * 0.7) as f32])','.val','values')]
+              ('shader uniforms builder',gallery_path,gallery_source,'.values(&[(0.8 + current_exposure * 0.7) as f32])','.val','values')]
     cases += [('slider step builder',gallery_path,gallery_source,'.step(0.05)','.ste','step')]
     cases += [('popover builder',gallery_path,gallery_source,'.close_popover()', '.close_pop', 'close_popover'),
-              ('popover constructor',gallery_path,gallery_source,'plico::widgets::popover(ui, &mut self.quick_settings, "Quick settings")','plico::widgets::popo','popover')]
+              ('popover constructor',gallery_path,gallery_source,'plico::widgets::popover(ui, &mut self.quick_settings, l.text("quick-settings", "Quick settings"))','plico::widgets::popo','popover')]
     cases += [('select width builder',gallery_path,gallery_source,'.width(132.)','.wid','width'),
-              ('menu item icon builder',gallery_path,gallery_source,'.icon(&plico::icons::PLUS)','.ico','icon'),
+              ('menu item icon builder',gallery_path,gallery_source,'.icon(&crate::icons::PLUS)','.ico','icon'),
               ('select constructor',gallery_path,gallery_source,'plico::widgets::select','plico::widgets::sel','select')]
     cases += [('tooltip constructor',gallery_path,gallery_source,'plico::widgets::tooltip','plico::widgets::tool','tooltip'),
-              ('tooltip identity builder',gallery_path,gallery_source,'plico::widgets::tooltip(ui, "Add one to the counter")','plico::widgets::tooltip(ui, "Add one to the counter").ke','key')]
+              ('tooltip content builder',gallery_path,gallery_source,'plico::widgets::tooltip(ui, l.text("add-one-to-the-counter", "Add one to the counter"))','plico::widgets::tooltip(ui, l.text("add-one-to-the-counter", "Add one to the counter")).chi','children')]
     button_path=ROOT/'crates/plico/tests/button_content.rs'
     button_source=button_path.read_text()
     cases += [('button text content',button_path,button_source,'.text("Save")','.te','text'),
@@ -120,7 +120,7 @@ try:
         pos={'line':content[:offset].count('\n'),'character':len(content[:offset].rsplit('\n',1)[-1].encode('utf-16-le'))//2}
         result=response(send('textDocument/completion',{'textDocument':{'uri':uri},'position':pos},True))
         items=result.get('items',[]) if isinstance(result,dict) else result or []
-        labels=sorted({i['label'] for i in items});found=any(x.split('(')[0]==expected for x in labels)
+        labels=sorted({i['label'] for i in items});found=any(re.split(r'\(| = ',x,maxsplit=1)[0]==expected for x in labels)
         results.append({'case':label,'expected':expected,'found':found,'labels':labels})
         send('textDocument/didClose',{'textDocument':{'uri':uri}})
     report={'server':subprocess.check_output(['rust-analyzer','--version'],text=True).strip(),'cases':results}

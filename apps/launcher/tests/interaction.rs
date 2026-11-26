@@ -1,5 +1,5 @@
 use launcher::{Category, Launcher};
-use plico_desktop::{HostAction, Source, WindowCommand};
+use plico_desktop::{EffectPayload, Source, WindowCommand};
 use plico_renderer::{
     FrameSource, ImeEvent, KeyEvent, KeyLocation, KeyPhase, Modifiers, SemanticAction,
     SemanticRole, TextContext, UiEvent,
@@ -90,19 +90,19 @@ fn search_empty_recovery_and_escape_close_are_native_actions() {
     assert_eq!(s.view().selected_id(), None);
     s.handle_event(key("Enter"));
     frame(&mut s, &mut tcx);
-    assert!(s.take_host_action().is_none());
+    assert!(s.take_effect().is_none());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
     assert!(s.view().query_is_empty());
     assert!(s.view().result_count() > 0);
-    assert!(s.take_host_action().is_none());
+    assert!(s.take_effect().is_none());
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
     assert_eq!(
-        s.take_host_action(),
-        Some(HostAction::Window(WindowCommand::Close))
+        s.take_effect().map(|request| request.payload),
+        Some(EffectPayload::window(WindowCommand::Close))
     );
-    assert!(s.take_host_action().is_none());
+    assert!(s.take_effect().is_none());
 }
 #[test]
 fn ime_owns_arrows_enter_and_first_escape_while_composing() {
@@ -121,7 +121,7 @@ fn ime_owns_arrows_enter_and_first_escape_while_composing() {
     s.handle_event(key("Escape"));
     frame(&mut s, &mut tcx);
     assert!(!s.view().query_is_composing());
-    assert!(s.take_host_action().is_none());
+    assert!(s.take_effect().is_none());
     s.handle_event(UiEvent::Ime(ImeEvent::Commit("终端".into())));
     frame(&mut s, &mut tcx);
     assert_eq!(s.view().selected_id(), Some("terminal"));

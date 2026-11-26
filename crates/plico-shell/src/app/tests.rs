@@ -125,7 +125,7 @@ fn native_pointer_sources_keep_identity_and_pressure() {
 }
 
 struct EventActionSource {
-    pending: bool,
+    effects: crate::EffectQueue,
     drained: Arc<AtomicUsize>,
 }
 
@@ -373,16 +373,17 @@ impl FrameSource for EventActionSource {
     }
 
     fn handle_event(&mut self, _event: UiEvent) -> EventResponse {
-        self.pending = true;
+        self.effects
+            .push(crate::EffectPayload::window(WindowCommand::SetTitle(
+                "event effect".into(),
+            )));
         EventResponse::handled()
     }
 
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.pending.then(|| {
-            self.pending = false;
-            self.drained.fetch_add(1, Ordering::Relaxed);
-            HostAction::SetWindowTitle(Some("event action".into()))
-        })
+    fn take_effect(&mut self) -> Option<crate::EffectRequest> {
+        let request = self.effects.pop()?;
+        self.drained.fetch_add(1, Ordering::Relaxed);
+        Some(request)
     }
 }
 
@@ -611,10 +612,10 @@ fn pointer_selection_clears_linux_preedit_before_the_pointer_event() {
 }
 
 #[test]
-fn dispatch_event_drains_synchronous_host_actions() {
+fn dispatch_event_drains_synchronous_effects() {
     let drained = Arc::new(AtomicUsize::new(0));
     let mut app = App::new(Box::new(EventActionSource {
-        pending: false,
+        effects: crate::EffectQueue::default(),
         drained: drained.clone(),
     }));
 

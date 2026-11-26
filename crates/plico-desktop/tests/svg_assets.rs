@@ -1,3 +1,4 @@
+use plico::widgets::svg;
 use plico::{Motion, SvgAsset, UiContext, VirtualClock, component};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
@@ -16,10 +17,10 @@ impl HostView for Icons {
     fn show(&mut self, ui: &mut UiContext) {
         if self.visible {
             let asset = if self.invalid { &BAD } else { &ICON };
-            ui.svg(asset)
+            svg(ui, asset)
                 .size(if self.wide { 48. } else { 24. }, 24.)
                 .motion(Motion::Smooth);
-            ui.svg(asset).size(24., 24.);
+            svg(ui, asset).size(24., 24.);
         }
     }
 }

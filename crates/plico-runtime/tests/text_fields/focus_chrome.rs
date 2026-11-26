@@ -1,7 +1,7 @@
 use plico::prelude::*;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 #[derive(Default)]
 struct Demo {
@@ -29,7 +29,7 @@ impl HostView for Demo {
         });
     }
 }
-fn focused_borders(ui: &Driver<Demo>) -> usize {
+fn focused_borders(ui: &Tester<Demo>) -> usize {
     fn count(nodes: &[plico::ViewNode]) -> usize {
         nodes
             .iter()
@@ -43,7 +43,7 @@ fn focused_borders(ui: &Driver<Demo>) -> usize {
 }
 #[test]
 fn composite_and_ordinary_fields_use_one_border_focus_indicator() {
-    let mut ui = Driver::new(Demo::default(), 600, 400).unwrap();
+    let mut ui = Tester::new(Demo::default(), 600, 400).unwrap();
     assert_eq!(focused_borders(&ui), 0);
     for label in ["First", "Second"] {
         ui.execute(Command::Focus {
@@ -96,7 +96,7 @@ impl HostView for SearchDemo {
 }
 #[test]
 fn builtin_search_uses_one_outer_focus_border_and_keeps_native_text_input() {
-    let mut ui = Driver::new(SearchDemo::default(), 600, 400).unwrap();
+    let mut ui = Tester::new(SearchDemo::default(), 600, 400).unwrap();
     ui.execute(Command::Focus {
         role: "textbox".into(),
         label: "Search mail".into(),

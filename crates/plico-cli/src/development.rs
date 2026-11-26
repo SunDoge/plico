@@ -816,7 +816,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {{
         scenario.render(|app| plico_desktop::NativeApp(app))?.write_png(output)?;
         return Ok(());
     }}
-    plico_desktop::run({crate_name}::Application::default(), "{name}")?;
+    plico_desktop::run({crate_name}::Application::default(), plico_desktop::WindowOptions::new().title("{name}"))?;
     Ok(())
 }}
 "#

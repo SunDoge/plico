@@ -350,9 +350,7 @@ fn glass_popup_pose_frames_reuse_layout_and_move_the_shader_canvas() {
         let mut scene = Scene::new();
         let render =
             |source: &mut Source<GlassPopup>, scene: &mut Scene, text: &mut TextContext| {
-                source
-                    .try_render_retained_frame(scene, text, (640, 480), 1.)
-                    .unwrap();
+                source.render_frame(scene, text, (640, 480), 1.).unwrap();
             };
         render(&mut source, &mut scene, &mut text);
         source.update(|view| view.state.open());
@@ -499,7 +497,7 @@ fn retained_popup_fragments_match_full_encoding_through_reversal() {
             });
         }
         source
-            .try_render_retained_frame(&mut retained, &mut text, size, 1.)
+            .render_frame(&mut retained, &mut text, size, 1.)
             .unwrap();
         reused += source.frame_diagnostics().backend.scene_parts_reused;
         for command in &retained.flattened().commands {

@@ -1,6 +1,7 @@
 //! Scene-encoding cost scaling: one paint write at N placed text nodes.
 //! CPU only; no GPU or present. Complements memo_backend_probe, which
 //! reports whole-frame totals.
+use plico::widgets::{column, text};
 use plico::{Color, UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{Scene, TextContext};
@@ -43,9 +44,9 @@ struct Demo {
 }
 impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
-        cx.column().children(|cx| {
+        column(cx).children(|cx| {
             for i in 0..self.count {
-                cx.text("Retained paragraph")
+                text(cx, "Retained paragraph")
                     .key(i as u64)
                     .color(if i == 0 && self.changed {
                         Color::Literal(0xff0000)

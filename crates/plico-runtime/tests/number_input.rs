@@ -1,7 +1,7 @@
 use plico::prelude::*;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 
 struct NumberField {
@@ -18,7 +18,7 @@ impl HostView for NumberField {
     }
 }
 
-fn field_value(ui: &Driver<NumberField>) -> String {
+fn field_value(ui: &Tester<NumberField>) -> String {
     ui.snapshot()
         .exposed_nodes()
         .into_iter()
@@ -29,7 +29,7 @@ fn field_value(ui: &Driver<NumberField>) -> String {
 
 #[test]
 fn number_input_routes_arrows_and_canonicalizes_when_focus_leaves() {
-    let mut ui = Driver::new(NumberField { value: 5. }, 360, 180).unwrap();
+    let mut ui = Tester::new(NumberField { value: 5. }, 360, 180).unwrap();
     ui.execute(Command::Focus {
         role: "textbox".into(),
         label: "Count".into(),
@@ -94,7 +94,7 @@ fn short_edit_sequences_match_the_number_field_contract() {
 }
 
 fn check_sequence(initial: f64, sequence: [Edit; 3]) {
-    let mut ui = Driver::new(NumberField { value: initial }, 360, 180).unwrap();
+    let mut ui = Tester::new(NumberField { value: initial }, 360, 180).unwrap();
     let mut value = initial;
     let mut draft = value.to_string();
     for (step, edit) in sequence.iter().enumerate() {

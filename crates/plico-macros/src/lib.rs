@@ -152,52 +152,14 @@ impl VisitMut for Expand {
         if let Expr::MethodCall(call) = expr
             && self.is_ui(&call.receiver)
         {
-            let name = call.method.to_string();
-            if name == "memo" && call.args.len() == 2 {
+            if call.method == "memo" && call.args.len() == 2 {
                 let site = self.site();
                 call.method = Ident::new("memo_at", call.method.span());
                 call.args.insert(0, parse_quote!(#site));
-                return;
-            }
-            if name == "add" && call.args.len() == 1 {
+            } else if call.method == "add" && call.args.len() == 1 {
                 let site = self.site();
                 let runtime = &self.runtime;
                 call.method = Ident::new("add_keyed", call.method.span());
-                call.args
-                    .insert(0, parse_quote!(#runtime::Key::Generated(#site)));
-                return;
-            }
-            if matches!(
-                name.as_str(),
-                "slider"
-                    | "shader"
-                    | "modal"
-                    | "popover"
-                    | "tooltip"
-                    | "menu"
-                    | "menu_item"
-                    | "select"
-                    | "text_input"
-                    | "text_input_string"
-                    | "virtual_list"
-                    | "column"
-                    | "row"
-                    | "text"
-                    | "text_empty"
-                    | "text_fmt"
-                    | "button"
-                    | "button_base"
-                    | "svg"
-                    | "svg_source"
-                    | "image"
-            ) {
-                let site = self.site();
-                let runtime = &self.runtime;
-                *expr = parse_quote!(#runtime::ImplicitKey::site_id(#call, #site));
-            } else if matches!(name.as_str(), "switch" | "checkbox") && call.args.len() == 2 {
-                let site = self.site();
-                let runtime = &self.runtime;
-                call.method = Ident::new(&format!("{name}_keyed"), call.method.span());
                 call.args
                     .insert(0, parse_quote!(#runtime::Key::Generated(#site)));
             }
@@ -216,6 +178,7 @@ impl VisitMut for Expand {
                     matches!(
                         segment.ident.to_string().as_str(),
                         "slider"
+                            | "range_slider"
                             | "shader"
                             | "skeleton"
                             | "backdrop_blur"
@@ -233,9 +196,9 @@ impl VisitMut for Expand {
                             | "settings_section"
                             | "settings_row"
                             | "column"
+                            | "grid"
                             | "row"
                             | "text"
-                            | "text_empty"
                             | "text_fmt"
                             | "button"
                             | "button_base"

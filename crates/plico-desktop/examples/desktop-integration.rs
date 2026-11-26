@@ -78,14 +78,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         close_to_tray: true,
         notifications_enabled: true,
     })?;
-    plico_desktop::run_source_with_extensions(
-        Source::new(Demo {
-            native,
-            status: "Ready".into(),
-            next: 0,
-        }),
-        WindowOptions::new().title("Plico desktop example"),
-        vec![Box::new(extension)],
+    plico_desktop::run_windows(
+        vec![(
+            Box::new(Source::new(Demo {
+                native,
+                status: "Ready".into(),
+                next: 0,
+            })),
+            WindowOptions::new().title("Plico desktop example"),
+        )],
+        plico_desktop::EventLoopOptions {
+            extensions: vec![Box::new(extension)],
+            ..Default::default()
+        },
     )?;
     Ok(())
 }

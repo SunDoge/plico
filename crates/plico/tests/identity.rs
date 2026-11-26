@@ -1,3 +1,4 @@
+use plico::widgets::{button, column, row, switch, text};
 use plico::{Engine, Entity, UiContext, component};
 fn named(engine: &Engine, label: &str) -> Entity {
     fn visit(engine: &Engine, e: Entity, label: &str) -> Option<Entity> {
@@ -11,21 +12,21 @@ fn named(engine: &Engine, label: &str) -> Entity {
 }
 #[component]
 fn conditional(ui: &mut UiContext<'_>, extra: bool, clicks: &mut u32, enabled: &mut bool) {
-    ui.column().children(|ui| {
+    column(ui).children(|ui| {
         if extra {
-            ui.text("Optional");
+            text(ui, "Optional");
         }
-        if ui.button("Keep").clicked() {
+        if button(ui).text("Keep").clicked() {
             *clicks += 1;
         }
-        ui.switch("Enabled", enabled);
+        switch(ui, "Enabled", enabled);
         if extra {
-            let _ = ui.row().children(|ui| {
-                ui.text("Optional row");
+            let _ = row(ui).children(|ui| {
+                text(ui, "Optional row");
             });
         }
-        let _ = ui.row().children(|ui| {
-            ui.text("Last");
+        let _ = row(ui).children(|ui| {
+            text(ui, "Last");
         });
     })
 }
@@ -53,8 +54,8 @@ fn conditional_siblings_and_nested_views_keep_identity_and_queued_clicks() {
 }
 #[component]
 fn child(ui: &mut UiContext<'_>, label: &str) {
-    ui.column().children(|ui| {
-        ui.button(label);
+    column(ui).children(|ui| {
+        button(ui).text(label);
     })
 }
 #[component]
@@ -99,8 +100,8 @@ fn explicit_business_keys_keep_component_instances_when_list_reorders() {
 #[component]
 fn manual(ui: &mut UiContext<'_>, ids: &[u64]) {
     for id in ids {
-        let _ = ui.row().key(*id).children(|ui| {
-            ui.text(if *id == 1 { "One" } else { "Two" });
+        let _ = row(ui).key(*id).children(|ui| {
+            text(ui, if *id == 1 { "One" } else { "Two" });
         });
     }
 }
@@ -116,7 +117,7 @@ fn builder_key_overrides_generated_id_and_survives_reorder() {
 #[component]
 fn missing_key(ui: &mut UiContext<'_>) {
     for _ in 0..2 {
-        ui.text("Repeated");
+        text(ui, "Repeated");
     }
 }
 #[test]
@@ -154,7 +155,7 @@ struct Sections;
 impl Sections {
     #[component]
     fn item(&self, ui: &mut UiContext<'_>, label: &str) {
-        ui.text(label);
+        text(ui, label);
     }
     #[component]
     fn show(&self, ui: &mut UiContext<'_>) {
@@ -172,11 +173,11 @@ fn repeated_component_methods_are_scoped_at_their_invocations() {
 fn component_children_keep_static_nodes_when_a_branch_changes() {
     #[component]
     fn render(ui: &mut UiContext<'_>, extra: bool) {
-        ui.column().children(|ui| {
+        column(ui).children(|ui| {
             if extra {
-                ui.text("Extra");
+                text(ui, "Extra");
             }
-            ui.text("Stable");
+            text(ui, "Stable");
         })
     }
     let mut e = Engine::default();
@@ -191,7 +192,7 @@ fn changes_distinguish_view_requests_from_geometry_and_paint_diff() {
     use plico::{Changes, Color};
     let mut e = Engine::default();
     fn content(ui: &mut UiContext<'_>, height: f32, color: u32) {
-        ui.text("Box")
+        text(ui, "Box")
             .key("box")
             .height(height)
             .background(Color::Literal(color));

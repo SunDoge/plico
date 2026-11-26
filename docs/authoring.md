@@ -25,7 +25,7 @@ impl plico_dev::App for Application {
 ```
 
 使用 `plico new PATH` 生成普通 `main.rs + lib.rs` 项目。静态桌面入口使用
-`plico_desktop::run(Application::default(), title)`；需要持久化的数据由应用或
+`plico_desktop::run(Application::default(), WindowOptions::new().title(title))`；需要持久化的数据由应用或
 Engine 的显式持久状态保存，不依赖动态热重载 ABI。
 
 布局使用 `UiContext` 首参的独立函数；自定义组件也优先使用普通 Rust 函数。

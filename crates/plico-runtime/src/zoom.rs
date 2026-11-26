@@ -101,10 +101,6 @@ impl FrameSource for ZoomSource {
     fn restore_persisted(&mut self, bytes: &[u8]) {
         self.inner.restore_persisted(bytes);
     }
-    fn set_device_scale(&mut self, scale: f64) {
-        self.sync();
-        self.inner.set_device_scale(scale * self.zoom);
-    }
     fn prepare_for_event(
         &mut self,
         text: &mut TextContext,
@@ -137,29 +133,16 @@ impl FrameSource for ZoomSource {
         self.inner
             .paint_scene(scene, nodes, text, self.viewport(size), scale * self.zoom)
     }
-    fn render_retained_frame(
+    fn render_frame(
         &mut self,
         scene: &mut Scene,
         text: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
-        self.sync();
-        self.inner
-            .render_retained_frame(scene, text, self.viewport(size), scale * self.zoom)
-    }
-    fn build_and_paint(
-        &mut self,
-        scene: &mut Scene,
-        text: &mut TextContext,
-        width: u32,
-        height: u32,
-        scale: f64,
     ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
         self.sync();
-        let (width, height) = self.viewport((width, height));
         self.inner
-            .build_and_paint(scene, text, width, height, scale * self.zoom)
+            .render_frame(scene, text, self.viewport(size), scale * self.zoom)
     }
     fn base_color(&self) -> peniko::Color {
         self.inner.base_color()
@@ -176,9 +159,6 @@ impl FrameSource for ZoomSource {
     }
     fn poll_async(&mut self) -> bool {
         self.inner.poll_async() || self.zoom != self.controller.factor()
-    }
-    fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
-        self.inner.take_host_action()
     }
     fn pointer_cursor(&self) -> plico_renderer::style::CursorStyle {
         self.inner.pointer_cursor()

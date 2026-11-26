@@ -189,7 +189,7 @@ fn retained_frame_matches_direct_across_animation_frames() {
                 .unwrap();
         let mut retained = Scene::new();
         source
-            .try_render_retained_frame(&mut retained, &mut tcx, (1120, 820), 1.)
+            .render_frame(&mut retained, &mut tcx, (1120, 820), 1.)
             .unwrap();
         let retained_image =
             plico_shell::renderer::render_to_image(&retained, 1120, 820, source.base_color())
@@ -238,7 +238,7 @@ fn blur_stays_confined_during_theme_transition() {
         clock.advance(Duration::from_millis(40)).unwrap();
         let mut scene = Scene::new();
         source
-            .try_render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.)
+            .render_frame(&mut scene, &mut tcx, (1120, 820), 1.)
             .unwrap();
         let image =
             plico_shell::renderer::render_to_image(&scene, 1120, 820, source.base_color()).unwrap();

@@ -144,7 +144,7 @@ fn hover_and_save_are_stable_on_the_retained_present_path() {
             cy,
         ));
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.)
+        s.render_frame(&mut scene, &mut tcx, (1120, 820), 1.)
             .unwrap();
         // The presented scene must still contain the action-row buttons.
         // Structural check: node texts after present.
@@ -178,7 +178,7 @@ fn hover_anywhere_keeps_action_buttons_presented() {
         let y = 80. + (step % 7) as f64 * 90.;
         s.handle_event(pointer(PointerPhase::Move, x, y));
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.)
+        s.render_frame(&mut scene, &mut tcx, (1120, 820), 1.)
             .unwrap();
         let nodes = s.build_frame(&mut tcx, 1120, 820);
         for label in ["Save changes", "Reset changes", "Archive project"] {
@@ -241,7 +241,7 @@ fn scene_rebuilds_never_lose_button_glyphs() {
         };
         s.handle_event(pointer(PointerPhase::Move, x, y));
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut tcx, (1120, 820), 1.)
+        s.render_frame(&mut scene, &mut tcx, (1120, 820), 1.)
             .unwrap();
         let content: (usize, usize) =
             scene

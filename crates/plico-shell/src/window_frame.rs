@@ -150,8 +150,7 @@ mod tests {
                 let options = plico_renderer::WindowOptions::new()
                     .decorations(true)
                     .corner_radius(16)
-                    .initial_inner_size(160, 120)
-                    .renderer(plico_renderer::RenderBackend::Wgpu);
+                    .initial_inner_size(160, 120);
                 let mut shell = crate::shell::Shell::create(event_loop, &options).unwrap();
                 assert!(shell.window().is_decorated());
                 assert_eq!(shell.prepare_window_frame(Color::BLACK), Color::BLACK);

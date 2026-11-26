@@ -4,12 +4,14 @@ mod ui;
 
 use media::{Asset, Catalog, IMAGES, MediaError, VIDEOS};
 use plico::{Theme, UiContext};
-use plico_desktop::{HostAction, HostView, KeyEvent, WakeCallback, WindowOptions};
+use plico_desktop::{
+    EffectPayload, EffectQueue, EffectRequest, HostView, KeyEvent, WakeCallback, WindowOptions,
+};
 use plico_dev::App;
 use plico_runtime::background::Worker;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
-use std::{collections::VecDeque, path::PathBuf};
+use std::path::PathBuf;
 #[cfg(feature = "video")]
 use ui::Playback;
 use ui::{Effect, Library};
@@ -81,7 +83,7 @@ struct Desktop {
     catalog_path: Option<PathBuf>,
     stored: Catalog,
     pending: usize,
-    actions: VecDeque<HostAction>,
+    effects: EffectQueue,
     sample_video: Option<tempfile::NamedTempFile>,
     #[cfg(feature = "video")]
     player: plico_video::Player,
@@ -112,7 +114,7 @@ impl Desktop {
             worker,
             stored: Catalog::default(),
             pending: 0,
-            actions: VecDeque::new(),
+            effects: EffectQueue::default(),
             sample_video: None,
             #[cfg(feature = "video")]
             player,
@@ -249,7 +251,9 @@ impl Desktop {
                     repaint = true;
                 }
                 Effect::Open(path) => repaint |= self.open(path),
-                Effect::Copy(text) => self.actions.push_back(HostAction::SetClipboard(text)),
+                Effect::Copy(text) => {
+                    self.effects.push(EffectPayload::ClipboardWrite { text });
+                }
                 #[cfg(feature = "video")]
                 Effect::LoadVideo(id) => repaint |= self.load_video(id),
                 #[cfg(feature = "video")]
@@ -295,8 +299,8 @@ impl HostView for Desktop {
         self.worker.set_wake_callback(wake);
     }
 
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.actions.pop_front()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.effects.pop()
     }
 
     fn on_unhandled_key(&mut self, key: &KeyEvent) -> bool {
@@ -382,7 +386,7 @@ pub fn run(design: Design) -> Result<(), Error> {
         };
         if let Some(path) = args.capture {
             scenario
-                .render_with_backend(plico_desktop::RenderBackend::Wgpu, create)
+                .render(create)
                 .map_err(|source| Error::Preview { source })?
                 .write_png(path)
                 .map_err(|source| Error::Capture { source })?;
@@ -410,7 +414,7 @@ pub fn run(design: Design) -> Result<(), Error> {
         let surface = player.surface();
         let mut desktop = Desktop::new(Library::new(assets, true, design), player);
         desktop.import(args.files);
-        plico_desktop::run_source_with_options(
+        plico_desktop::run_source(
             plico_desktop::SurfaceSource::new(desktop, surface, "framebank-video"),
             options,
         )
@@ -420,7 +424,7 @@ pub fn run(design: Design) -> Result<(), Error> {
     {
         let mut desktop = Desktop::new(Library::new(assets, false, design));
         desktop.import(args.files);
-        plico_desktop::run_host_view_with_options(desktop, options)
+        plico_desktop::run_source(plico_desktop::Source::new(desktop), options)
             .map_err(|source| Error::Window { source })
     }
 }

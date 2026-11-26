@@ -373,9 +373,9 @@ impl Mines {
                                     }) + |cx|
                                     {
                                         if c.flagged {
-                                            cx.svg(&FLAG).size(tile * 0.58, tile * 0.58);
+                                            svg(cx, &FLAG).size(tile * 0.58, tile * 0.58);
                                         } else if c.mine {
-                                            cx.svg(&MINE).size(tile * 0.6, tile * 0.6);
+                                            svg(cx, &MINE).size(tile * 0.6, tile * 0.6);
                                         } else {
                                             plico::text!(
                                                 cx, "{}", c.adjacent
@@ -452,8 +452,7 @@ impl Mines {
                             ..Default::default()
                         }).align(Align::Center).justify(Justify::Center).gap(12) + |cx|
                         {
-                            cx.svg(if self.status == Status::Won { &FLAG } else { &MINE })
-                                .size(44., 44.);
+                            svg(cx, if self.status == Status::Won { &FLAG } else { &MINE }).size(44., 44.);
                             text(cx,
                                 if self.status == Status::Won { "Field cleared" } else { "Boom." }).font_size(28).weight(700).color(INK);
                             plico::text!(
@@ -505,7 +504,7 @@ fn chip(cx: &mut UiContext, icon: &SvgAsset, value: &str, width: f32) {
     row(cx).width(width).height(40.).radius(12.).background(PANEL).border(1., LINE).align(Align::Center)
         .justify(Justify::Center).gap(8) + |cx|
     {
-        cx.svg(icon).size(18., 18.);
+        svg(cx, icon).size(18., 18.);
         text(cx, value).font_size(15).weight(600).color(INK);
     };
 }

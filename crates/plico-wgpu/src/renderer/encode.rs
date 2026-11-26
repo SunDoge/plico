@@ -71,7 +71,7 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
         self.batch_stats = FrameBatchStats::default();
-        self.frame_budget = FrameBudget::default();
+        self.frame_budget = plico_renderer::FrameBudgetSample::default();
         if self.layer_depth == 0 {
             self.poll_class_pipelines();
             self.frame_prefix_commands.clear();

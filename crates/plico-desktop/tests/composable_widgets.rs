@@ -15,21 +15,21 @@ struct Demo {
 impl HostView for Demo {
     #[component]
     fn show(&mut self, ui: &mut UiContext) {
-        if ui
-            .button("Save")
+        if button(ui)
+            .text("Save")
             .primary()
             .disabled(self.disabled)
             .children(|ui| {
-                ui.svg(&ICON).size(18., 18.);
-                ui.text("Save content");
+                svg(ui, &ICON).size(18., 18.);
+                text(ui, "Save content");
             })
             .response
             .clicked()
         {
             self.count += 1;
         }
-        ui.button_base("Bare action").children(|ui| {
-            ui.text("Bare content");
+        button_base(ui, "Bare action").children(|ui| {
+            text(ui, "Bare content");
         });
     }
 }

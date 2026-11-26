@@ -4,6 +4,11 @@
 use crate::Easing;
 use std::time::Duration;
 
+mod content;
+mod placement;
+pub use content::{ContentTransition, ContentTransitionFrame};
+pub use placement::PinnedRect;
+
 /// How [`crate::UiContext::animate_to`] moves a scalar to its next target.
 /// A positive `duration` selects an easing curve; zero selects a spring.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -98,7 +103,11 @@ impl SpringOptions {
         ..Self::SMOOTH
     };
 
-    fn physics(self) -> SpringPhysics {
+    /// Resolve perceptual settings to physical parameters for the shared solver.
+    ///
+    /// Panics if any option is invalid or both parameterizations are supplied.
+    /// The initial velocity remains a property of the caller's animation state.
+    pub fn physics(self) -> SpringPhysics {
         for value in [
             self.bounce,
             self.mass,
@@ -113,9 +122,14 @@ impl SpringOptions {
             self.mass >= 0. && self.stiffness >= 0. && self.damping >= 0. && self.precision >= 0.,
             "spring values must not be negative"
         );
-        let mass = if self.mass == 0. { 1. } else { self.mass };
+        let defaults = SpringPhysics::default();
+        let mass = if self.mass == 0. {
+            defaults.mass
+        } else {
+            self.mass
+        };
         let precision = if self.precision == 0. {
-            0.001
+            defaults.precision
         } else {
             self.precision
         };
@@ -126,12 +140,12 @@ impl SpringOptions {
             );
             (
                 if self.stiffness == 0. {
-                    170.
+                    defaults.stiffness
                 } else {
                     self.stiffness
                 },
                 if self.damping == 0. {
-                    26.
+                    defaults.damping
                 } else {
                     self.damping
                 },
@@ -176,14 +190,7 @@ impl SpringOptions {
             return 0.;
         }
         let spring = self.physics();
-        let (displacement, _) = solve_spring(
-            -1.,
-            f64::from(self.velocity),
-            spring.mass,
-            spring.stiffness,
-            spring.damping,
-            elapsed.as_secs_f64(),
-        );
+        let (displacement, _) = spring.sample(-1., f64::from(self.velocity), elapsed.as_secs_f64());
         1. + displacement
     }
 
@@ -193,18 +200,9 @@ impl SpringOptions {
         let spring = self.physics();
         let mut displacement = -1.;
         let mut velocity = f64::from(self.velocity);
-        let step = Duration::from_millis(1);
-        let speed_precision = spring.precision * (spring.stiffness / spring.mass).sqrt();
         for millis in 1..=60_000 {
-            (displacement, velocity) = solve_spring(
-                displacement,
-                velocity,
-                spring.mass,
-                spring.stiffness,
-                spring.damping,
-                step.as_secs_f64(),
-            );
-            if displacement.abs() <= spring.precision && velocity.abs() <= speed_precision {
+            (displacement, velocity) = spring.sample(displacement, velocity, 0.001);
+            if spring.at_rest(displacement, velocity) {
                 return Duration::from_millis(millis);
             }
         }
@@ -226,12 +224,39 @@ impl Default for SpringOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-struct SpringPhysics {
-    mass: f64,
-    stiffness: f64,
-    damping: f64,
-    precision: f64,
+/// Physical coefficients of an analytic damped oscillator.
+///
+/// Pass coefficients directly to retained motion, or use
+/// [`SpringOptions::physics`] to resolve perceptual settings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpringPhysics {
+    /// Moving mass. Must be positive and finite.
+    pub mass: f64,
+    /// Restoring force coefficient. Must be positive and finite.
+    pub stiffness: f64,
+    /// Damping force coefficient. Must be non-negative and finite.
+    pub damping: f64,
+    /// Maximum displacement from the target before settling.
+    pub precision: f64,
+}
+
+impl Default for SpringPhysics {
+    fn default() -> Self {
+        Self {
+            mass: 1.,
+            stiffness: 170.,
+            damping: 26.,
+            precision: 0.001,
+        }
+    }
+}
+
+impl SpringPhysics {
+    /// Shared rest criterion for both declaration and renderer motion.
+    pub fn at_rest(self, displacement: f64, velocity: f64) -> bool {
+        displacement.abs() <= self.precision
+            && velocity.abs() <= self.precision * (self.stiffness / self.mass).sqrt()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -406,20 +431,12 @@ impl ValueChannel {
             self.velocity = span * self.ease.slope(progress) / total;
             return;
         }
-        let displacement = self.value - self.target;
-        let (displacement, velocity) = solve_spring(
-            displacement,
-            self.velocity,
-            self.spring.mass,
-            self.spring.stiffness,
-            self.spring.damping,
-            elapsed,
-        );
+        let (displacement, velocity) =
+            self.spring
+                .sample(self.value - self.target, self.velocity, elapsed);
         self.value = self.target + displacement;
         self.velocity = velocity;
-        let speed_precision =
-            self.spring.precision * (self.spring.stiffness / self.spring.mass).sqrt();
-        if displacement.abs() <= self.spring.precision && velocity.abs() <= speed_precision {
+        if self.spring.at_rest(displacement, velocity) {
             self.value = self.target;
             self.velocity = 0.;
             self.moving = false;
@@ -427,47 +444,49 @@ impl ValueChannel {
     }
 }
 
-fn solve_spring(
-    x: f64,
-    velocity: f64,
-    mass: f64,
-    stiffness: f64,
-    damping: f64,
-    dt: f64,
-) -> (f64, f64) {
-    if x == 0. && velocity == 0. {
-        return (0., 0.);
+impl SpringPhysics {
+    /// Sample a damped oscillator with already validated physical parameters.
+    pub fn sample(self, x: f64, velocity: f64, dt: f64) -> (f64, f64) {
+        let Self {
+            mass,
+            stiffness,
+            damping,
+            ..
+        } = self;
+        if x == 0. && velocity == 0. {
+            return (0., 0.);
+        }
+        let frequency = (stiffness / mass).sqrt();
+        let decay = (damping / mass) / 2.;
+        let discriminant = decay * decay - frequency * frequency;
+        if discriminant.abs() < 1e-8 * frequency * frequency {
+            let b = velocity + decay * x;
+            let envelope = (-decay * dt).exp();
+            return (
+                (x + b * dt) * envelope,
+                (velocity - decay * b * dt) * envelope,
+            );
+        }
+        if discriminant < 0. {
+            let damped = (-discriminant).sqrt();
+            let (sin, cos) = (damped * dt).sin_cos();
+            let b = (velocity + decay * x) / damped;
+            let envelope = (-decay * dt).exp();
+            let value = x * cos + b * sin;
+            return (
+                value * envelope,
+                (damped * (-x * sin + b * cos) - decay * value) * envelope,
+            );
+        }
+        let root = discriminant.sqrt();
+        let slow = -frequency * frequency / (decay + root);
+        let fast = -decay - root;
+        let slow_weight = (velocity - fast * x) / (slow - fast);
+        let fast_weight = x - slow_weight;
+        let slow_term = slow_weight * (slow * dt).exp();
+        let fast_term = fast_weight * (fast * dt).exp();
+        (slow_term + fast_term, slow * slow_term + fast * fast_term)
     }
-    let frequency = (stiffness / mass).sqrt();
-    let decay = (damping / mass) / 2.;
-    let discriminant = decay * decay - frequency * frequency;
-    if discriminant.abs() < 1e-8 * frequency * frequency {
-        let b = velocity + decay * x;
-        let envelope = (-decay * dt).exp();
-        return (
-            (x + b * dt) * envelope,
-            (velocity - decay * b * dt) * envelope,
-        );
-    }
-    if discriminant < 0. {
-        let damped = (-discriminant).sqrt();
-        let (sin, cos) = (damped * dt).sin_cos();
-        let b = (velocity + decay * x) / damped;
-        let envelope = (-decay * dt).exp();
-        let value = x * cos + b * sin;
-        return (
-            value * envelope,
-            (damped * (-x * sin + b * cos) - decay * value) * envelope,
-        );
-    }
-    let root = discriminant.sqrt();
-    let slow = -frequency * frequency / (decay + root);
-    let fast = -decay - root;
-    let slow_weight = (velocity - fast * x) / (slow - fast);
-    let fast_weight = x - slow_weight;
-    let slow_term = slow_weight * (slow * dt).exp();
-    let fast_term = fast_weight * (fast * dt).exp();
-    (slow_term + fast_term, slow * slow_term + fast * fast_term)
 }
 
 #[cfg(test)]

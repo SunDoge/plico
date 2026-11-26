@@ -5,7 +5,7 @@
 //! into a readback buffer at the end of the encoder, which is mapped only after
 //! submission. Slots are reused, so a frame never waits for GPU completion.
 
-use super::{FrameBudget, Renderer};
+use super::Renderer;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -192,7 +192,7 @@ fn stamp(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, index: u3
 
 impl Renderer {
     /// CPU and GPU work spent on the most recently encoded frame.
-    pub fn frame_budget(&self) -> FrameBudget {
+    pub fn frame_budget(&self) -> plico_renderer::FrameBudgetSample {
         self.frame_budget
     }
 

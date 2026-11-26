@@ -206,21 +206,21 @@ fn retained_resize_refreshes_observed_rows_before_returning_to_idle() {
     let mut scene = plico_renderer::Scene::new();
     for _ in 0..2 {
         source
-            .render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .render_frame(&mut scene, &mut text, (400, 300), 1.)
             .unwrap();
     }
     assert_eq!(source.view().built.len(), 10);
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .render_frame(&mut scene, &mut text, (400, 500), 1.)
         .unwrap();
     assert!(source.has_anim(), "schedule layout-feedback declaration");
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .render_frame(&mut scene, &mut text, (400, 500), 1.)
         .unwrap();
     assert_eq!(source.view().built.len(), 15);
     let batches = source.batch_stats().declaration_batches;
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 500), 1.)
+        .render_frame(&mut scene, &mut text, (400, 500), 1.)
         .unwrap();
     assert_eq!(source.batch_stats().declaration_batches, batches);
 }

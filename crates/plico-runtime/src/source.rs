@@ -1,6 +1,6 @@
 //! Declaration settling, frame construction and retained scene caching.
 use crate::view::HostViewChild;
-use crate::{Adapter, BackendStats, FontAsset, HostAction, HostView, rgb, transition};
+use crate::{Adapter, BackendStats, FontAsset, HostView, rgb, transition};
 use peniko::Color;
 use plico::{Engine, Entity};
 use plico_renderer::{
@@ -95,7 +95,6 @@ pub struct Source<V: HostView> {
     last_tick: Option<Instant>,
     requests: plico::Changes,
     requested_reduced_motion: bool,
-    display_preferences_dirty: bool,
     target_scene: Option<(Scene, u64, u64)>,
     scene_scratch: plico_renderer::scene::SceneScratch,
     scene_parts: plico_renderer::scene::SceneParts,
@@ -136,7 +135,6 @@ impl<V: HostView> Source<V> {
             last_tick: None,
             requests: plico::Changes::empty(),
             requested_reduced_motion: false,
-            display_preferences_dirty: false,
             target_scene: None,
             scene_scratch: Default::default(),
             scene_parts: Default::default(),
@@ -392,6 +390,16 @@ impl<V: HostView> Source<V> {
         self.prepare_frame_at(tcx, size.0, size.1, now, force_declaration)
     }
 
+    /// Commit the layout for the given viewport without exporting a node list.
+    /// After success, callers can inspect [`Self::placed_nodes`] or dispatch input.
+    pub fn prepare_layout(
+        &mut self,
+        text: &mut TextContext,
+        size: (u32, u32),
+    ) -> Result<(), SourceError> {
+        self.prepare_frame(text, size, true)
+    }
+
     /// Build a frame and report declaration or clock failures to the caller.
     pub fn try_build_frame(
         &mut self,
@@ -399,7 +407,7 @@ impl<V: HostView> Source<V> {
         width: u32,
         height: u32,
     ) -> Result<Vec<PlacedNode>, SourceError> {
-        self.prepare_frame(tcx, (width, height), true)?;
+        self.prepare_layout(tcx, (width, height))?;
         Ok(self.adapter.presented())
     }
 
@@ -416,7 +424,7 @@ impl<V: HostView> Source<V> {
     }
 
     /// Prepare and encode a retained frame, returning declaration failures directly.
-    pub fn try_render_retained_frame(
+    pub fn render_frame(
         &mut self,
         scene: &mut Scene,
         tcx: &mut TextContext,
@@ -798,7 +806,6 @@ impl<V: HostView> Source<V> {
                     other => SourceError::Declaration { source: other },
                 }
             })?;
-        self.display_preferences_dirty = false;
         self.batch_stats.declaration_passes += passes as usize;
         self.declaration_passes = u64::from(passes);
         self.declaration_stats = self.engine.last_stats();
@@ -831,8 +838,13 @@ impl<V: HostView> FrameSource for Source<V> {
             tracing::warn!(%error, "persisted state could not be restored; defaults are active");
         }
     }
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.view.take_host_action()
+    fn take_effect(&mut self) -> Option<plico_renderer::EffectRequest> {
+        self.view.take_effect()
+    }
+    fn complete_effect(&mut self, completion: plico_renderer::EffectCompletion) {
+        if self.view.complete_effect(completion) {
+            self.request_rebuild();
+        }
     }
     fn set_wake_callback(&mut self, wake: plico_renderer::WakeCallback) {
         self.wake_batch.pending.store(false, Ordering::Release);
@@ -889,29 +901,14 @@ impl<V: HostView> FrameSource for Source<V> {
     ) {
         self.paint_frame_scene(scene, Some(nodes), tcx, size, scale);
     }
-    fn render_retained_frame(
+    fn render_frame(
         &mut self,
         scene: &mut Scene,
         tcx: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
-        self.try_render_retained_frame(scene, tcx, size, scale)
-            .map(Some)
-            .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
-    }
-    fn build_and_paint(
-        &mut self,
-        scene: &mut Scene,
-        tcx: &mut TextContext,
-        width: u32,
-        height: u32,
-        scale: f64,
     ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
-        // Same frame pipeline as build_frame_at, but the scene is encoded
-        // straight from the adapter's retained state: the per-node placed
-        // list is never materialized for the host.
-        self.try_build_and_paint(scene, tcx, width, height, scale)
+        self.render_frame(scene, tcx, size, scale)
             .map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn base_color(&self) -> Color {
@@ -965,7 +962,6 @@ impl<V: HostView> FrameSource for Source<V> {
                 .engine
                 .set_display_preferences(metrics.display_preferences())
         {
-            self.display_preferences_dirty = true;
             self.apply_motion_preferences();
             self.target_scene = None;
             return EventResponse {

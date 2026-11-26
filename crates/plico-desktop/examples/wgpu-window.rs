@@ -59,11 +59,10 @@ fn content(cx: &mut UiContext<'_>, count: &mut i32, value: &mut String, animated
     };
 }
 fn main() -> Result<(), plico_desktop::DesktopError> {
-    plico_desktop::run_view_with_options(
+    plico_desktop::run_view(
         Counter::default(),
         plico_desktop::WindowOptions::new()
             .title("Plico — wgpu shared host")
-            .renderer(plico_desktop::RenderBackend::Wgpu)
             .initial_inner_size(620, 480)
             .min_inner_size(520, 450),
     )

@@ -66,7 +66,7 @@ fn main() {
             source.set_reduced_motion(smooth);
             let mut scene = Scene::new();
             source
-                .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .render_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let mut samples = Vec::new();
             let mut calls = 0;
@@ -82,7 +82,7 @@ fn main() {
                         .handled
                 );
                 source
-                    .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                    .render_frame(&mut scene, &mut text, (800, 600), 1.)
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
                 if i >= 40 {
@@ -101,11 +101,11 @@ fn main() {
             );
             clock.advance(Duration::from_secs(1)).unwrap();
             source
-                .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .render_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let calls = source.view().calls;
             source
-                .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .render_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             assert_eq!(source.view().calls, calls);
             assert!(!source.has_anim());

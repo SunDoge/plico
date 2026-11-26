@@ -1,3 +1,4 @@
+use plico::widgets::{column, text};
 use plico::{Theme, UiContext};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
@@ -11,12 +12,12 @@ impl HostView for Panel {
         self.theme
     }
     fn show(&mut self, cx: &mut UiContext<'_>) {
-        cx.column()
+        column(cx)
             .width(self.width)
             .height(40.)
             .background(plico::Color::Panel)
             .children(|cx| {
-                cx.text("Stable");
+                text(cx, "Stable");
             });
     }
 }
@@ -55,7 +56,7 @@ fn rich_text_color_animation_repaints_without_remeasurement() {
     }
     impl HostView for RichText {
         fn show(&mut self, cx: &mut UiContext<'_>) {
-            cx.text("Animated highlight").spans(&[TextSpan {
+            text(cx, "Animated highlight").spans(&[TextSpan {
                 range: 0..8,
                 weight: self.weight,
                 italic: false,

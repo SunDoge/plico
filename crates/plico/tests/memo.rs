@@ -1,3 +1,4 @@
+use plico::widgets::{button, text};
 use plico::{Engine, FrameTime, UiContext, component};
 use std::{cell::Cell, rc::Rc, time::Duration};
 
@@ -13,7 +14,7 @@ fn unchanged_dependency_skips_and_changed_dependency_rebuilds() {
     let show = |cx: &mut UiContext<'_>, revision| {
         cx.memo(revision, |cx| {
             builds.set(builds.get() + 1);
-            cx.text(if revision == 1 { "one" } else { "two" });
+            text(cx, if revision == 1 { "one" } else { "two" });
         });
     };
 
@@ -41,7 +42,7 @@ fn omitting_a_memo_unmounts_it_and_drops_the_slot() {
         if visible {
             cx.memo(0, |cx| {
                 builds.set(builds.get() + 1);
-                cx.text("cached");
+                text(cx, "cached");
             });
         }
     };
@@ -58,7 +59,7 @@ fn memo_list(cx: &mut UiContext<'_>, ids: &[u64], builds: &Cell<u32>) {
         cx.keyed(*id, |cx| {
             cx.memo(0, |cx| {
                 builds.set(builds.get() + 1);
-                cx.text(if *id == 1 { "one" } else { "two" });
+                text(cx, if *id == 1 { "one" } else { "two" });
             });
         });
     }
@@ -91,7 +92,7 @@ fn pending_activation_rebuilds_an_interactive_memo() {
     let show = |cx: &mut UiContext<'_>| {
         cx.memo(0, |cx| {
             builds.set(builds.get() + 1);
-            if cx.button("go").clicked() {
+            if button(cx).text("go").clicked() {
                 clicks.set(clicks.get() + 1);
             }
         });
@@ -116,7 +117,7 @@ fn memo_keeps_component_local_state_until_the_dependency_changes() {
                 String::from("state")
             });
             assert_eq!(state.read().as_str(), "state");
-            cx.text("content");
+            text(cx, "content");
         });
     };
     engine.frame_declarations(|cx| show(cx, 1)).unwrap();
@@ -139,7 +140,7 @@ fn animated_memos_rebuild_and_deadlines_wake_static_memos() {
         cx.memo(0, |cx| {
             animated_builds.set(animated_builds.get() + 1);
             cx.request_animation_frame();
-            cx.text("animated");
+            text(cx, "animated");
         });
     };
     engine.frame_declarations(animated).unwrap();
@@ -153,7 +154,7 @@ fn animated_memos_rebuild_and_deadlines_wake_static_memos() {
         cx.memo(0, |cx| {
             builds.set(builds.get() + 1);
             cx.request_rebuild_at(deadline);
-            cx.text("deadline");
+            text(cx, "deadline");
         });
     };
     engine.set_time(FrameTime {
@@ -180,7 +181,7 @@ fn a_nested_memo_deadline_invalidates_its_skipped_outer_scope() {
             cx.memo(0, |cx| {
                 builds.set(builds.get() + 1);
                 cx.request_rebuild_at(deadline);
-                cx.text("nested deadline");
+                text(cx, "nested deadline");
             });
         });
     };

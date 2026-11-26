@@ -1,7 +1,7 @@
 #![cfg(feature = "wgpu")]
 //! Material regressions against a deliberately detailed synthetic backdrop.
 use plico::prelude::*;
-use plico_desktop::{NativeApp, RenderBackend, Source, capture};
+use plico_desktop::{NativeApp, Source, capture};
 #[derive(Default)]
 struct Probe {
     material: LiquidGlass,
@@ -54,11 +54,7 @@ fn curved_edges_refract_detailed_background_while_center_and_shadow_contract_rem
             },
             monochrome: false,
         }));
-        let image = capture(&mut source)
-            .size(320, 240)
-            .renderer(RenderBackend::Wgpu)
-            .render()
-            .unwrap();
+        let image = capture(&mut source, plico_desktop::CaptureOptions::new(320, 240)).unwrap();
         assert!(
             source
                 .placed_nodes()
@@ -107,11 +103,7 @@ fn optical_lens_magnifies_the_center_and_separates_colors_at_the_bevel() {
             },
             monochrome: true,
         }));
-        capture(&mut source)
-            .size(320, 240)
-            .renderer(RenderBackend::Wgpu)
-            .render()
-            .unwrap()
+        capture(&mut source, plico_desktop::CaptureOptions::new(320, 240)).unwrap()
     };
     let flat = render(0.);
     let lens = render(1.);
@@ -189,11 +181,7 @@ impl plico_dev::App for EdgeProbe {
 fn typed_scroll_edges_blur_the_selected_side_and_preserve_the_opposite_side() {
     let render = |side| {
         let mut source = Source::new(NativeApp(EdgeProbe { side }));
-        capture(&mut source)
-            .size(320, 240)
-            .renderer(RenderBackend::Wgpu)
-            .render()
-            .unwrap()
+        capture(&mut source, plico_desktop::CaptureOptions::new(320, 240)).unwrap()
     };
     let base = render(None);
     let red =
@@ -288,12 +276,14 @@ fn plico_effect(uv:vec2<f32>)->vec4<f32> {
             radius,
             smoothing,
         }));
-        capture(&mut source)
-            .size(128, 96)
-            .scale(scale)
-            .renderer(RenderBackend::Wgpu)
-            .render()
-            .unwrap()
+        capture(
+            &mut source,
+            plico_desktop::CaptureOptions {
+                scale,
+                ..plico_desktop::CaptureOptions::new(128, 96)
+            },
+        )
+        .unwrap()
     };
     for (radius, smoothing, scale) in [
         (18., 1., 1.),
@@ -327,7 +317,7 @@ fn plico_effect(uv:vec2<f32>)->vec4<f32> {
 #[ignore = "requires a working wgpu adapter"]
 fn regular_and_clear_glass_follow_mygo_tones_and_preserve_small_control_clarity() {
     use plico_desktop::HostView;
-    use plico_renderer::{FrameSource, Scene, TextContext};
+    use plico_renderer::{Scene, TextContext};
     struct ToneProbe {
         dark: bool,
         size: f32,
@@ -365,7 +355,7 @@ fn regular_and_clear_glass_follow_mygo_tones_and_preserve_small_control_clarity(
         let mut text = TextContext::new();
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (size as u32, size as u32), 1.)
+            .render_frame(&mut scene, &mut text, (size as u32, size as u32), 1.)
             .unwrap();
         renderer
             .render_scene(&scene, [size as u32, size as u32], [0.; 4], false)
@@ -414,7 +404,7 @@ fn regular_and_clear_glass_follow_mygo_tones_and_preserve_small_control_clarity(
 #[ignore = "requires a working wgpu adapter"]
 fn primary_glass_buttons_keep_default_theme_label_contrast() {
     use plico_desktop::HostView;
-    use plico_renderer::{FrameSource, Scene, TextContext};
+    use plico_renderer::{Scene, TextContext};
     struct Primary(plico::Theme);
     impl HostView for Primary {
         fn theme(&self) -> plico::Theme {
@@ -459,7 +449,7 @@ fn primary_glass_buttons_keep_default_theme_label_contrast() {
         let mut text = TextContext::new();
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (120, 40), 1.)
+            .render_frame(&mut scene, &mut text, (120, 40), 1.)
             .unwrap();
         let pixels = renderer
             .render_scene(&scene, [120, 40], [0.; 4], false)

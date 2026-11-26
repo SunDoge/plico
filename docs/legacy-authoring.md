@@ -58,7 +58,7 @@ button(cx).icon(&icons::SETTINGS).aria_label("Settings").ghost();
 
 简写也生成真正的 SVG/Text 子节点，和自定义 children 共用按钮容器。
 自定义 children 替换简写内容；文字内容可推导无障碍名称，`.aria_label(...)` 显式覆盖。
-纯图标按钮应显式命名。旧 `ui.button("...")` 保留兼容。
+纯图标按钮应显式命名。旧 `ui.button(label)` 可迁移到 `button(ui).text(label)`。
 
 ## 统一入口
 
@@ -85,4 +85,4 @@ CLI 使用 Tree-sitter 定位同时带 `#[component]` 和 `#[rustfmt::skip]` 的
 
 将来迁入 formatter 时应恢复这些测试，包含 UTF-16 编辑位置处理；新 API 是否有补全要实测，而非仅凭宏能编译推断。
 
-当前 component/text 过程宏已由真实 rust-analyzer 验证 18 个补全样本，包括旧 Ui 方法、独立 Context 首参函数、builder、布局头、now、request_animation_frame 、text! 后的样式链和 toggle 配置/响应、icon 构造、SVG 颜色和完整 Lucide 常量。运行 scripts/check-lsp.py，报告在 reports/macros/lsp.json。它不包含原实验全部 formatter、导航或任意残缺宏测试。
+当前 component/text 过程宏已由真实 rust-analyzer 验证一组补全样本，包括 UiContext 状态方法、独立 Context 首参函数、builder、布局头、now、request_animation_frame 、text! 后的样式链和 toggle 配置/响应、icon 构造、SVG 颜色和由 CLI 生成的 Lucide 常量。运行 scripts/check-lsp.py，报告在 reports/macros/lsp.json。它不包含原实验全部 formatter、导航或任意残缺宏测试。

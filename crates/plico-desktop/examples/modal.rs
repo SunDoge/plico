@@ -67,8 +67,5 @@ impl View for Demo {
     }
 }
 fn main() -> Result<(), plico_desktop::DesktopError> {
-    plico_desktop::run_view_with_options(
-        Demo::default(),
-        WindowOptions::new().title("Plico · Modal"),
-    )
+    plico_desktop::run_view(Demo::default(), WindowOptions::new().title("Plico · Modal"))
 }

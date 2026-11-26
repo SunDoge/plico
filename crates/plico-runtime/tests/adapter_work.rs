@@ -57,7 +57,7 @@ impl HostView for Form {
     }
 }
 fn frame(s: &mut Source<Form>, text: &mut TextContext) {
-    s.render_retained_frame(&mut Scene::new(), text, (600, 2200), 1.)
+    s.render_frame(&mut Scene::new(), text, (600, 2200), 1.)
         .unwrap();
 }
 fn stats<V: HostView>(source: &Source<V>) -> plico_runtime::BackendStats {
@@ -218,12 +218,12 @@ fn shader_registry_tracks_mount_and_unmount_without_gpu_rasterization() {
     let mut source = Source::new(Demo { present: true });
     let mut text = TextContext::new();
     source
-        .render_retained_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
+        .render_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
         .unwrap();
     assert_eq!(stats(&source).shader_visits, 1);
     source.update(|view| view.present = false);
     source
-        .render_retained_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
+        .render_frame(&mut Scene::new(), &mut text, (600, 2200), 1.)
         .unwrap();
     assert_eq!(stats(&source).shader_visits, 0);
     assert!(source.shader_diagnostics().next().is_none());
@@ -279,7 +279,7 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
     });
     s.set_reduced_motion(true);
     let mut text = TextContext::new();
-    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+    s.render_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
     assert_eq!(stats(&s).scroll_visits, 1);
     let before = s.batch_stats().scroll_viewport_visits;
@@ -289,7 +289,7 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
         .unwrap()
         .id;
     assert!(s.handle_semantic_action(SemanticAction::Click { target }));
-    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+    s.render_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
     assert_eq!(s.batch_stats().scroll_viewport_visits - before, 1);
     assert_eq!(stats(&s).scroll_visits, 1);
@@ -315,7 +315,7 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
         }))
         .handled
     );
-    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+    s.render_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
     let offset = |source: &Source<Demo>| {
         source
@@ -328,13 +328,13 @@ fn scroll_feedback_uses_only_scroll_ports_and_clears_after_disabling_scroll() {
     };
     assert_eq!(offset(&s), 32.);
     s.update(|view| view.scroll = false);
-    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+    s.render_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
     assert_eq!(offset(&s), 0.);
     assert_eq!(stats(&s).scroll_visits, 0);
     let before = s.batch_stats().scroll_viewport_visits;
     s.request_rebuild();
-    s.render_retained_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
+    s.render_frame(&mut Scene::new(), &mut text, (600, 600), 1.)
         .unwrap();
     assert_eq!(s.batch_stats().scroll_viewport_visits, before);
 }
@@ -409,7 +409,7 @@ fn control_metric_invalidation_matches_fresh_layout_and_cleans_unmounted_members
     s.set_reduced_motion(true);
     let mut text = TextContext::new();
     let draw = |s: &mut Source<Controls>, text: &mut TextContext| {
-        s.render_retained_frame(&mut Scene::new(), text, (600, 600), 1.)
+        s.render_frame(&mut Scene::new(), text, (600, 600), 1.)
             .unwrap();
     };
     draw(&mut s, &mut text);
@@ -474,7 +474,7 @@ fn shader_diagnostics_follow_asset_path_changes_and_recover() {
     for path in ["effects/first.wgsl", "effects/second.wgsl"] {
         source.update(|view| view.path = path);
         source
-            .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
+            .render_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
             .unwrap();
         let errors: Vec<_> = source.shader_diagnostics().collect();
         assert_eq!(errors.len(), 1);
@@ -482,7 +482,7 @@ fn shader_diagnostics_follow_asset_path_changes_and_recover() {
     }
     source.update(|view| view.valid = true);
     source
-        .render_retained_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
+        .render_frame(&mut Scene::new(), &mut text, (100, 100), 1.)
         .unwrap();
     assert!(source.shader_diagnostics().next().is_none());
 }

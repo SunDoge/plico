@@ -1,7 +1,7 @@
 use plico::prelude::*;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 struct Kit {
     page: usize,
@@ -40,7 +40,7 @@ impl HostView for Kit {
         });
     }
 }
-fn click(ui: &mut Driver<Kit>, label: &str) {
+fn click(ui: &mut Tester<Kit>, label: &str) {
     ui.execute(Command::Click {
         role: "button".into(),
         label: label.into(),
@@ -50,7 +50,7 @@ fn click(ui: &mut Driver<Kit>, label: &str) {
 }
 #[test]
 fn managed_kit_counterparts_have_bounded_pagination_and_native_actions() {
-    let mut ui = Driver::new(Kit::default(), 1000, 800).unwrap();
+    let mut ui = Tester::new(Kit::default(), 1000, 800).unwrap();
     let pages = ui
         .snapshot()
         .exposed_nodes()
@@ -130,7 +130,7 @@ fn skeleton_uses_native_animation_without_redeclaring_the_view_and_can_go_idle()
         clock.advance(Duration::from_millis(16)).unwrap();
         let mut scene = Scene::new();
         source
-            .try_render_retained_frame(&mut scene, &mut text, (320, 200), 1.)
+            .render_frame(&mut scene, &mut text, (320, 200), 1.)
             .unwrap();
     }
     assert_eq!(source.view().shows, shows);

@@ -55,7 +55,7 @@ fn smooth_scroll_advances_during_unrelated_layout_changes() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     assert!(
         source
@@ -74,7 +74,7 @@ fn smooth_scroll_advances_during_unrelated_layout_changes() {
         clock.advance(Duration::from_millis(16)).unwrap();
         source.update(|view| view.height = 20. + step as f32);
         source
-            .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+            .render_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
         let port = source
             .placed_nodes()
@@ -111,11 +111,11 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     source.update(|view| view.height = 100.);
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     assert!(
         source
@@ -134,7 +134,7 @@ fn host_layout_animation_and_scroll_share_clock_without_redeclaring_each_frame()
     for step in 1..=10 {
         clock.advance(Duration::from_millis(16)).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+            .render_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
         assert_eq!(
             source.view().shows,

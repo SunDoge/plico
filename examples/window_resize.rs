@@ -1,14 +1,17 @@
 //! Fixed width through OS size constraints; optional custom-border edge selection.
 use plico::prelude::*;
-use plico_desktop::{HostAction, HostView, WindowCommand, WindowOptions, WindowResizeEdges};
+use plico_desktop::{
+    EffectPayload, EffectQueue, EffectRequest, HostView, WindowCommand, WindowOptions,
+    WindowResizeEdges,
+};
 
 #[derive(Default)]
 struct Demo {
-    close: bool,
+    effects: EffectQueue,
 }
 impl HostView for Demo {
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        std::mem::take(&mut self.close).then_some(HostAction::Window(WindowCommand::Close))
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.effects.pop()
     }
     #[component]
     #[rustfmt::skip]
@@ -18,15 +21,15 @@ impl HostView for Demo {
             text(cx, "Width stays at 480 logical pixels. Height can vary from 240 to 900.");
             text(cx, "Drag the top or bottom edge. Corners also resize vertically.");
             if button(cx).text("Close").clicked() {
-                self.close = true;
+                self.effects.push(EffectPayload::window(WindowCommand::Close));
             }
         };
     }
 }
 fn main() -> Result<(), plico_desktop::DesktopError> {
     let custom = std::env::var_os("PLICO_CUSTOM_DECORATIONS").is_some();
-    plico_desktop::run_host_view_with_options(
-        Demo::default(),
+    plico_desktop::run_source(
+        plico_desktop::Source::new(Demo::default()),
         WindowOptions::new()
             .title("Plico window resize constraints")
             .initial_inner_size(480, 420)

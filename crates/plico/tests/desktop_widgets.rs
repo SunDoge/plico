@@ -64,12 +64,12 @@ fn tabs_report_selection_changes_and_mark_the_chosen_tab() {
 #[test]
 fn toasts_expire_with_the_frame_clock_and_sticky_ones_stay() {
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Saved"));
+    host.add(Toast::message("Saved"));
     assert_eq!(host.len(), 1);
     // Renewal by ID replaces rather than stacks.
-    host.toast(Toast::message("Saved"));
+    host.add(Toast::message("Saved"));
     assert_eq!(host.len(), 1);
-    host.toast(Toast::message("Other"));
+    host.add(Toast::message("Other"));
     assert_eq!(host.len(), 2);
 
     let mut engine = Engine::default();
@@ -100,7 +100,7 @@ fn toasts_expire_with_the_frame_clock_and_sticky_ones_stay() {
     });
     assert_eq!(host.len(), 0, "the default lifetime expired both");
     // Sticky toasts never time out.
-    host.toast(Toast::message("Keep").sticky());
+    host.add(Toast::message("Keep").sticky());
     engine.set_time(FrameTime {
         now: Duration::from_secs(120),
         delta: Duration::from_secs(120),
@@ -116,7 +116,7 @@ fn toasts_expire_with_the_frame_clock_and_sticky_ones_stay() {
 #[test]
 fn toast_snapshots_stay_transient() {
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Deleted").with_action("Undo", || {}));
+    host.add(Toast::message("Deleted").with_action("Undo", || {}));
     assert_eq!(host.len(), 1);
     // A cloned host carries no toasts: toasts are transient runtime state,
     // as hover and press are, and never travel through state copies.
@@ -138,7 +138,7 @@ fn toast_actions_run_once_and_renew_by_id() {
     use std::cell::Cell;
     let fired = std::rc::Rc::new(Cell::new(0));
     let fired_ref = fired.clone();
-    host.toast(Toast::message("Deleted").with_action("Undo", move || {
+    host.add(Toast::message("Deleted").with_action("Undo", move || {
         fired_ref.set(fired_ref.get() + 1);
     }));
     // The action only fires through the viewport's action button; a plain
@@ -204,7 +204,7 @@ fn drag_area_tracks_deltas_only_while_pressed_and_releases_on_up() {
 #[test]
 fn toast_time_stops_while_the_pointer_rests_on_it() {
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Held"));
+    host.add(Toast::message("Held"));
     let mut engine = Engine::default();
     engine.set_time(FrameTime {
         now: Duration::ZERO,
@@ -275,7 +275,7 @@ fn toast_frame(engine: &mut Engine, host: &mut ToastHost, millis: u64) {
 #[test]
 fn toast_presence_retains_identity_and_closes_from_its_current_position() {
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Animated").sticky());
+    host.add(Toast::message("Animated").sticky());
     let mut engine = Engine::default();
     toast_frame(&mut engine, &mut host, 0);
     let card = toast_card(&engine).unwrap();
@@ -307,7 +307,7 @@ fn toast_presence_retains_identity_and_closes_from_its_current_position() {
 #[test]
 fn renewing_a_retiring_toast_reverses_without_remounting() {
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Retry").sticky());
+    host.add(Toast::message("Retry").sticky());
     let mut engine = Engine::default();
     toast_frame(&mut engine, &mut host, 0);
     toast_frame(&mut engine, &mut host, 140);
@@ -317,7 +317,7 @@ fn renewing_a_retiring_toast_reverses_without_remounting() {
     toast_frame(&mut engine, &mut host, 210);
     let before = engine.node(card).unwrap().style.opacity;
     assert!(before > 0. && before < 1.);
-    host.toast(Toast::message("Retry").sticky());
+    host.add(Toast::message("Retry").sticky());
     toast_frame(&mut engine, &mut host, 210);
     assert_eq!(toast_card(&engine), Some(card));
     assert_eq!(engine.node(card).unwrap().style.opacity, before);
@@ -336,7 +336,7 @@ fn new_toasts_do_not_inherit_idle_time_and_timeout_animates_out() {
     let mut engine = Engine::default();
     let mut host = ToastHost::default();
     toast_frame(&mut engine, &mut host, 0);
-    host.toast(Toast::message("New"));
+    host.add(Toast::message("New"));
     toast_frame(&mut engine, &mut host, 60_000);
     assert_eq!(host.len(), 1);
     toast_frame(&mut engine, &mut host, 63_999);
@@ -357,7 +357,7 @@ fn retiring_action_cannot_fire_again_and_zero_motion_removes_immediately() {
     let fired = Rc::new(Cell::new(0));
     let counter = fired.clone();
     let mut host = ToastHost::default();
-    host.toast(
+    host.add(
         Toast::message("Action")
             .sticky()
             .with_action("Undo", move || counter.set(counter.get() + 1)),
@@ -377,7 +377,7 @@ fn retiring_action_cannot_fire_again_and_zero_motion_removes_immediately() {
     theme.metrics.interaction_ms = 0;
     engine.set_theme(theme);
     toast_frame(&mut engine, &mut host, 300);
-    host.toast(Toast::message("Instant").sticky());
+    host.add(Toast::message("Instant").sticky());
     toast_frame(&mut engine, &mut host, 301);
     assert_eq!(
         engine
@@ -396,7 +396,7 @@ fn retiring_action_cannot_fire_again_and_zero_motion_removes_immediately() {
 fn dismissing_after_idle_starts_exit_on_the_next_frame() {
     let mut engine = Engine::default();
     let mut host = ToastHost::default();
-    host.toast(Toast::message("Idle").sticky());
+    host.add(Toast::message("Idle").sticky());
     toast_frame(&mut engine, &mut host, 0);
     toast_frame(&mut engine, &mut host, 140);
     host.close("Idle");

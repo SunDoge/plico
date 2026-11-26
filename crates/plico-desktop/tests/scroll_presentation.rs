@@ -72,7 +72,7 @@ fn wheel(delta: f64) -> UiEvent {
     })
 }
 fn sample(s: &mut Source<Demo>, text: &mut TextContext) {
-    s.render_retained_frame(&mut Scene::new(), text, (600, 400), 1.)
+    s.render_frame(&mut Scene::new(), text, (600, 400), 1.)
         .unwrap();
 }
 fn click(source: &mut Source<Demo>, text: &mut TextContext) {

@@ -34,7 +34,7 @@ fn main() {
     text.load_font(std::fs::read("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf").unwrap());
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (120, 100), 1.)
+        .render_frame(&mut scene, &mut text, (120, 100), 1.)
         .unwrap();
     assert!(
         source
@@ -55,7 +55,7 @@ fn main() {
             clock.advance(Duration::from_millis(4)).unwrap();
         }
         source
-            .render_retained_frame(&mut scene, &mut text, (120, 100), 1.)
+            .render_frame(&mut scene, &mut text, (120, 100), 1.)
             .unwrap();
         let positions: Vec<_> = scene
             .commands

@@ -31,11 +31,15 @@ fn range_slider_reports_both_ends_and_clamps_them() {
     let mut high = 80.0;
     let mut engine = Engine::default();
     let mut changed = false;
-    let view = |cx: &mut UiContext, low: &mut f64, high: &mut f64, changed: &mut bool| {
-        *changed = range_slider(cx, "Price", low, high, 0.0..=100.0);
-    };
+    #[component]
+    fn view(cx: &mut UiContext, low: &mut f64, high: &mut f64, extra: bool, changed: &mut bool) {
+        if extra {
+            text(cx, "Price range");
+        }
+        *changed = range_slider(cx, "Price", low, high, 0.0..=100.0).changed();
+    }
     frame(&mut engine, |cx| {
-        view(cx, &mut low, &mut high, &mut changed)
+        view(cx, &mut low, &mut high, false, &mut changed)
     });
     let node = slider(&engine);
     let numeric = engine.node(node).unwrap().numeric.unwrap();
@@ -57,25 +61,26 @@ fn range_slider_reports_both_ends_and_clamps_them() {
 
     engine.queue_high_value(node, 65.);
     frame(&mut engine, |cx| {
-        view(cx, &mut low, &mut high, &mut changed)
+        view(cx, &mut low, &mut high, true, &mut changed)
     });
+    assert_eq!(slider(&engine), node);
     assert_eq!(high, 65.);
     assert!(changed);
 
     engine.queue_high_value(node, 10.);
     frame(&mut engine, |cx| {
-        view(cx, &mut low, &mut high, &mut changed)
+        view(cx, &mut low, &mut high, true, &mut changed)
     });
     assert_eq!(high, 20., "the high thumb cannot cross the low one");
 
     engine.queue_value(node, 90.);
     frame(&mut engine, |cx| {
-        view(cx, &mut low, &mut high, &mut changed)
+        view(cx, &mut low, &mut high, true, &mut changed)
     });
     assert_eq!(low, 20., "the high bound still caps the low thumb");
     engine.queue_value(node, 10.);
     frame(&mut engine, |cx| {
-        view(cx, &mut low, &mut high, &mut changed)
+        view(cx, &mut low, &mut high, true, &mut changed)
     });
     assert_eq!(low, 10.);
 }

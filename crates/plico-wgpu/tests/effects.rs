@@ -71,7 +71,7 @@ fn render(
 ) -> [u8; 4] {
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, text, (64, 64), scale)
+        .render_frame(&mut scene, text, (64, 64), scale)
         .unwrap();
     if !source.view().0.invalid {
         assert_eq!(
@@ -455,7 +455,7 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
     let mut draw = |source: &mut Source<NativeView<Named>>| {
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (64, 64), 1.)
+            .render_frame(&mut scene, &mut text, (64, 64), 1.)
             .unwrap();
         let rgba = renderer
             .render_scene(&scene, [64, 64], [0.; 4], true)
@@ -668,7 +668,7 @@ fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
         let mut source = Source::new(NativeView(Pane { glass }));
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, viewport, scale)
+            .render_frame(&mut scene, &mut text, viewport, scale)
             .unwrap();
         assert_eq!(source.shader_diagnostics().count(), 0);
         renderer

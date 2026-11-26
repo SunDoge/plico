@@ -19,7 +19,7 @@ builds do not acquire this dependency graph.
 plico-shell = { path = "../plico/crates/plico-shell", features = ["global-hotkeys"] }
 ```
 
-Use `GlobalHotkeyExtension` with `run_windows_with_factory_and_extensions`:
+Use `GlobalHotkeyExtension` with `run_windows` via `EventLoopOptions::extensions`:
 
 ```rust
 use plico_shell::{ExtensionContext, WindowResourceKey};

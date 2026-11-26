@@ -1,5 +1,7 @@
 use super::*;
-use plico::{Easing, GlassStyle, LiquidGlass, SpringOptions};
+use plico::{
+    ContentTransition, Easing, GlassStyle, LiquidGlass, MasonryLayout, PinnedRect, SpringOptions,
+};
 use std::time::Duration;
 
 const BASE: Color = Color::Literal(0x141820);
@@ -11,13 +13,19 @@ const ACCENT: Color = Color::Literal(0x9fe1d7);
 const HEADER: f32 = 62.;
 const GUTTER: f32 = 18.;
 const RADIUS: f32 = 15.;
-const LANDING_BLEND: f32 = 0.12;
 // MyGO gallery's Magic Move spring. See Stillroom's README for the source.
 const TILE_FLIGHT: SpringOptions = SpringOptions {
     duration: Duration::from_millis(450),
     bounce: 0.12,
     ..SpringOptions::SMOOTH
 };
+const RETURN_FLIGHT: SpringOptions = SpringOptions {
+    duration: Duration::from_millis(330),
+    bounce: 0.,
+    ..TILE_FLIGHT
+};
+const LANDING_FADE_DISTANCE: f32 = 8.;
+const LANDING_REST_DISTANCE: f32 = 0.25;
 const PANEL_SPRING: SpringOptions = SpringOptions {
     duration: Duration::from_millis(285),
     ..SpringOptions::SMOOTH
@@ -84,9 +92,9 @@ pub(super) struct PreviewState {
     immersive: bool,
     anchor: [f32; 2],
     zoom_phase: f32,
-    screen_phase: f32,
-    selection: Reveal<u64>,
-    filter: Reveal<Filter>,
+    flight_phase: f32,
+    selection: ContentTransition<u64>,
+    filter: ContentTransition<Filter>,
     painted_photo: Option<(u64, Bounds)>,
     outgoing_photo: Option<(u64, Bounds)>,
     matched_tile: Option<(u64, Bounds)>,
@@ -114,51 +122,17 @@ impl PreviewState {
         self.immersive = !self.immersive;
     }
 
+    fn return_progress(&self) -> f32 {
+        1. - (self.flight_phase / self.return_phase.max(0.001)).clamp(0., 1.)
+    }
+
     pub(super) fn leave(&mut self) {
         self.return_photo = self.painted_photo.take();
         self.return_native_video = std::mem::take(&mut self.painted_native_video);
-        self.return_phase = self.screen_phase.max(0.001);
+        self.return_phase = self.flight_phase.max(0.001);
         self.outgoing_photo = None;
-        self.selection = Reveal::default();
+        self.selection = ContentTransition::default();
         self.restore_grid_scroll = true;
-    }
-}
-
-struct Reveal<T> {
-    current: Option<T>,
-    started: Option<Duration>,
-}
-
-impl<T> Default for Reveal<T> {
-    fn default() -> Self {
-        Self {
-            current: None,
-            started: None,
-        }
-    }
-}
-
-impl<T: Copy + Eq> Reveal<T> {
-    fn sample(&mut self, cx: &mut UiContext, target: T, millis: u64) -> f32 {
-        let now = cx.now();
-        if self
-            .current
-            .replace(target)
-            .is_some_and(|previous| previous != target)
-        {
-            self.started = Some(now);
-        }
-        let Some(started) = self.started else {
-            return 1.;
-        };
-        let elapsed = now.saturating_sub(started);
-        let duration = Duration::from_millis(millis);
-        if elapsed >= duration || cx.display_preferences().reduce_motion {
-            self.started = None;
-            return 1.;
-        }
-        cx.request_animation_frame();
-        Easing::EaseOut.sample(elapsed.as_secs_f64() / duration.as_secs_f64()) as f32
     }
 }
 
@@ -171,6 +145,10 @@ struct Bounds {
 }
 
 impl Bounds {
+    fn rect(self) -> [f32; 4] {
+        [self.x, self.y, self.w, self.h]
+    }
+
     fn center(self) -> [f32; 2] {
         [self.x + self.w / 2., self.y + self.h / 2.]
     }
@@ -203,6 +181,24 @@ impl Bounds {
             self.interpolate(tile, progress),
             self.interpolate(tile.cover(poster), progress),
         )
+    }
+
+    fn max_edge_delta(self, other: Self) -> f32 {
+        [
+            self.x - other.x,
+            self.y - other.y,
+            self.x + self.w - (other.x + other.w),
+            self.y + self.h - (other.y + other.h),
+        ]
+        .into_iter()
+        .map(f32::abs)
+        .fold(0., f32::max)
+    }
+
+    fn remaining_distance(self, tile: Self, dimensions: (u32, u32), progress: f32) -> f32 {
+        self.max_edge_delta(tile)
+            .max(self.max_edge_delta(tile.cover(dimensions)))
+            * (1. - progress)
     }
 
     fn photo_view(
@@ -242,12 +238,13 @@ impl Library {
         let [width, height] = cx.viewport_size();
         let footer = if self.importing || !self.notice.is_empty() { 27. } else { 0. };
         let open = self.selected.is_some();
-        let flight = cx.spring("library-to-preview", f32::from(open), TILE_FLIGHT);
+        let spring = if open { TILE_FLIGHT } else { RETURN_FLIGHT };
+        let flight = cx.spring("library-to-preview", f32::from(open), spring);
         let screen = if open || self.stillroom.return_photo.is_some() { flight.clamp(0., 1.) } else { 0. };
         let chrome = ((screen - 0.48) / 0.52).clamp(0., 1.);
         let wall_opacity = 1. - (screen / 0.76).clamp(0., 1.);
-        self.stillroom.screen_phase = screen;
-        if !open && screen == 0. {
+        self.stillroom.flight_phase = flight;
+        if !open && flight == 0. {
             self.stillroom.return_photo = None;
             self.related = false;
         }
@@ -276,15 +273,16 @@ impl Library {
                     && let Some(asset) =
                         self.assets.iter().find(|asset| asset.id == id).cloned()
                 {
-                    let remaining = (screen / self.stillroom.return_phase).clamp(0., 1.);
+                    let progress = self.stillroom.return_progress();
+                    let remaining = 1. - progress;
                     let tile = self.stillroom.matched_tile.filter(|(tile_id, _)| *tile_id == id);
                     if asset.kind == Kind::Photo
                         && let Some((_, tile)) = tile
                     {
-                        returning_photo(cx, &asset, from, tile, remaining);
+                        returning_photo(cx, &asset, from, tile, progress);
                     } else {
                         let bounds = tile.map_or(from, |(_, to)| {
-                            from.interpolate(to.cover(asset.dimensions), 1. - remaining)
+                            from.interpolate(to.cover(asset.dimensions), progress)
                         });
                         let fade = if tile.is_some() { 1. } else { remaining };
                         column(cx).absolute(bounds.x, bounds.y).width(bounds.w).height(bounds.h).radius(RADIUS)
@@ -365,16 +363,13 @@ impl Library {
             ((width - 2. * GUTTER - (columns as f32 - 1.) * gap - 10.) / columns as f32).floor();
         let mut open = None;
         let mut favorite = None;
-        let reveal = self.stillroom.filter.sample(cx, self.filter, 150);
-        let returning = self.stillroom.return_photo.map(|(id, _)| id);
-        // Reveal the actual card as the flying photo starts fading over it.
-        let returning_hidden = returning.filter(|id| {
-            self.stillroom.screen_phase > LANDING_BLEND * self.stillroom.return_phase
-                || self.assets.iter().any(|asset| asset.id == *id && asset.kind == Kind::Video)
-        });
+        let transition = self.stillroom.filter.sample(cx, self.filter, Duration::from_millis(150));
+        let reveal = Easing::EaseOut.sample(transition.progress) as f32;
+        let returning = self.stillroom.return_photo;
+        let return_progress = self.stillroom.return_progress();
         let hidden = self.selected.filter(|id| {
             self.assets.iter().any(|asset| asset.id == *id && asset.kind == Kind::Photo)
-        }).or(returning_hidden);
+        });
         let visible_height = cx.viewport_size()[1] - HEADER;
         let mut destination = None;
         column(cx).width_percent(100.).height(0.).grow(1.).scroll_y(true).padding(GUTTER).gap(15) + |cx| {
@@ -412,29 +407,34 @@ impl Library {
                 for (index, stack) in wall.into_iter().enumerate() {
                     column(cx).key(index).width(card_w).shrink(0.).gap(gap) + |cx| {
                         let x = GUTTER + index as f32 * (card_w + gap);
-                        let mut y = GUTTER + 34. + 15. - offset + 8. * (1. - reveal);
-                        for (asset, card_h) in stack {
+                        let top = GUTTER + 34. + 15. - offset + 8. * (1. - reveal);
+                        for (asset, card_h, card_top) in stack {
+                            let y = top + card_top;
                             let bounds = Bounds {
                                 x,
                                 y,
                                 w: card_w,
                                 h: card_h,
                             };
-                            if returning == Some(asset.id)
+                            let mut hide = hidden == Some(asset.id);
+                            if let Some((id, from)) = returning
+                                && id == asset.id
                                 && y + card_h > 0.
                                 && y < visible_height
                             {
-                                destination = Some((asset.id, bounds));
+                                destination = Some((id, bounds));
+                                hide = asset.kind == Kind::Video
+                                    || from.remaining_distance(bounds, asset.poster_dimensions,
+                                        return_progress) >= LANDING_FADE_DISTANCE;
                             }
-                            let response = stillroom_tile(cx, asset, card_w, card_h,
-                                hidden == Some(asset.id));
+                            let response =
+                                stillroom_tile(cx, asset, card_w, card_h, hide);
                             if response.0 {
                                 open = Some((asset.id, bounds, offset));
                             }
                             if response.1 {
                                 favorite = Some(asset.id);
                             }
-                            y += card_h + gap;
                         }
                     };
                 }
@@ -467,7 +467,8 @@ impl Library {
     ) {
         let sidebar = if width < 1020. { 252. } else { 306. };
         let gallery = width - sidebar - GUTTER;
-        let selection = self.stillroom.selection.sample(cx, asset.id, 200);
+        let transition = self.stillroom.selection.sample(cx, asset.id, Duration::from_millis(200));
+        let selection = Easing::EaseOut.sample(transition.progress) as f32;
         column(cx).absolute(0., 0.).width_percent(100.).height_percent(100.).clip(true) + |cx| {
             if selection < 1.
                 && let Some((id, bounds)) = self.stillroom.outgoing_photo
@@ -842,17 +843,19 @@ impl Library {
     }
 }
 
-fn masonry(assets: Vec<&Asset>, columns: usize, width: f32, gap: f32) -> Vec<Vec<(&Asset, f32)>> {
+fn masonry(
+    assets: Vec<&Asset>,
+    columns: usize,
+    width: f32,
+    gap: f32,
+) -> Vec<Vec<(&Asset, f32, f32)>> {
     let mut stacks = vec![Vec::new(); columns];
-    let mut heights = vec![0_f32; columns];
+    let mut layout = MasonryLayout::new(columns.try_into().expect("positive column count"), gap);
     for asset in assets {
-        let index = (0..columns)
-            .min_by(|&a, &b| heights[a].total_cmp(&heights[b]))
-            .unwrap_or(0);
         let (w, h) = asset.dimensions;
         let height = (width * h as f32 / w as f32).clamp(width * 0.45, width * 1.45);
-        stacks[index].push((asset, height));
-        heights[index] += height + gap;
+        let slot = layout.push(height);
+        stacks[slot.column].push((asset, height, slot.top));
     }
     stacks
 }
@@ -861,28 +864,44 @@ fn hex([r, g, b]: [u8; 3]) -> String {
     format!("#{r:02X}{g:02X}{b:02X}")
 }
 
+// MyGO's match.go fadeIn. The arriving JPEG is opaque at halfway and completely
+// covers the outgoing copy within their shared clip, so the latter can be dropped.
+fn arriving_photo_alpha(progress: f32) -> f32 {
+    let offset = (progress * 2.).clamp(0., 1.) - 1.;
+    (1. - offset * offset).sqrt()
+}
+
 #[component]
 #[rustfmt::skip]
-fn returning_photo(cx: &mut UiContext, asset: &Asset, from: Bounds, tile: Bounds, remaining: f32) {
-    let blend = ((remaining - 0.02) / (LANDING_BLEND - 0.02)).clamp(0., 1.);
+fn returning_photo(cx: &mut UiContext, asset: &Asset, from: Bounds, tile: Bounds, progress: f32) {
+    let distance = from.remaining_distance(tile, asset.poster_dimensions, progress);
+    let blend = ((distance - LANDING_REST_DISTANCE)
+        / (LANDING_FADE_DISTANCE - LANDING_REST_DISTANCE)).clamp(0., 1.);
     let opacity = blend * blend * (3. - 2. * blend);
     if opacity == 0. {
         return;
     }
-    let progress = 1. - remaining;
     let (clip, poster) = from.photo_landing(tile, asset.poster_dimensions, progress);
-    // Finish the resolution blend before the card takes over the final pixels.
-    let detail = ((remaining - 0.08) / 0.24).clamp(0., 1.);
-    column(cx).absolute(clip.x, clip.y).width(clip.w).height(clip.h).radius(RADIUS).corner_smoothing(progress)
-        .clip(true).background(SURFACE).opacity(opacity) + |cx|
+    let arriving = arriving_photo_alpha(progress);
+    let Some(clip_pose) = PinnedRect::new(tile.rect(), clip.rect()) else {
+        return;
+    };
+    let rest = tile.cover(asset.poster_dimensions);
+    let Some(image_pose) = PinnedRect::new([rest.x - tile.x, rest.y - tile.y, rest.w, rest.h],
+        clip_pose.to_local(poster.rect())) else {
+        return;
+    };
+    let [image_w, image_h] = image_pose.layout_size();
+    column(cx).pinned_rect(clip_pose).radius(RADIUS / clip_pose.scale()).corner_smoothing(progress).clip(true)
+        .background(SURFACE).opacity(opacity) + |cx|
     {
-        column(cx).absolute(poster.x - clip.x, poster.y - clip.y).width(poster.w).height(poster.h) + |cx| {
-            if detail < 1. {
-                image(cx, &asset.wall_preview).size(poster.w, poster.h);
+        column(cx).pinned_rect(image_pose) + |cx| {
+            if arriving < 1. {
+                image(cx, &asset.poster).size(image_w, image_h);
             }
-            if detail > 0. {
-                column(cx).absolute(0., 0.).width(poster.w).height(poster.h).opacity(detail) + |cx| {
-                    image(cx, &asset.poster).size(poster.w, poster.h);
+            if arriving > 0. {
+                column(cx).absolute(0., 0.).width(image_w).height(image_h).opacity(arriving) + |cx| {
+                    image(cx, &asset.wall_preview).size(image_w, image_h);
                 };
             }
         };

@@ -1,6 +1,6 @@
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 #[test]
 fn glass_profile_and_clarity_controls_update_the_gallery_without_enabling_motion() {
     let mut app = Gallery {
@@ -8,7 +8,7 @@ fn glass_profile_and_clarity_controls_update_the_gallery_without_enabling_motion
         ..Default::default()
     };
     app.effects.paused = true;
-    let mut driver = Driver::new(app, 1120, 900).unwrap();
+    let mut driver = Tester::new(app, 1120, 900).unwrap();
     for (label, value) in [
         ("Regular", "regular"),
         ("Clear", "clear"),
@@ -50,7 +50,7 @@ fn preview_pointer_commands_capture_hover_press_and_release_without_changing_but
     };
     app.effects.paused = true;
     app.effects.glass_style = "regular".into();
-    let mut driver = Driver::new(app, 1120, 900).unwrap();
+    let mut driver = Tester::new(app, 1120, 900).unwrap();
     let bounds = driver
         .snapshot()
         .exposed_nodes()
@@ -83,8 +83,8 @@ fn liquid_controls_handle_native_actions_and_guard_slide_confirmation() {
         router: Router::new(Page::Effects),
         ..Default::default()
     };
-    let mut driver = Driver::new(app, 1400, 2000).unwrap();
-    let click = |driver: &mut Driver<Gallery>, role: &str, label: &str| {
+    let mut driver = Tester::new(app, 1400, 2000).unwrap();
+    let click = |driver: &mut Tester<Gallery>, role: &str, label: &str| {
         driver
             .execute(Command::Click {
                 role: role.into(),
@@ -161,7 +161,7 @@ fn liquid_controls_handle_native_actions_and_guard_slide_confirmation() {
 
 #[test]
 fn showcase_dropdown_reopens_with_four_distinct_commands() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -202,7 +202,7 @@ fn showcase_dropdown_reopens_with_four_distinct_commands() {
 #[test]
 fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
     use std::time::Duration;
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -211,14 +211,14 @@ fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
         2000,
     )
     .unwrap();
-    let click = |driver: &mut Driver<Gallery>, label: &str| {
+    let click = |driver: &mut Tester<Gallery>, label: &str| {
         driver.execute(Command::Click {
             role: "button".into(),
             label: label.into(),
             occurrence: None,
         })
     };
-    let visible = |driver: &Driver<Gallery>, label: &str| {
+    let visible = |driver: &Tester<Gallery>, label: &str| {
         driver
             .get_by_role(plico_renderer::SemanticRole::Button, label)
             .is_ok()
@@ -240,7 +240,7 @@ fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
 #[test]
 fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
     use plico_renderer::SemanticToggleState::{Off, On};
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -250,7 +250,7 @@ fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
     )
     .unwrap();
     for label in ["Notifications", "Remember this device", "Circle"] {
-        let control = |driver: &Driver<Gallery>| {
+        let control = |driver: &Tester<Gallery>| {
             let snapshot = driver.snapshot();
             let node = snapshot
                 .exposed_nodes()
@@ -317,7 +317,7 @@ fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
 #[test]
 fn liquid_gallery_places_select_below_and_dropdown_over_its_anchor() {
     use plico_renderer::SemanticRole;
-    let mut d = Driver::new(
+    let mut d = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -341,7 +341,7 @@ fn liquid_gallery_places_select_below_and_dropdown_over_its_anchor() {
         ),
     ] {
         let a = d.get_by_role(anchor_role, label).unwrap().bounds;
-        let pointer_click = |d: &mut Driver<Gallery>, [left, top, right, bottom]: [f32; 4]| {
+        let pointer_click = |d: &mut Tester<Gallery>, [left, top, right, bottom]: [f32; 4]| {
             let (x, y) = (
                 f64::from((left + right) / 2.),
                 f64::from((top + bottom) / 2.),
@@ -409,7 +409,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
     use std::time::Duration;
 
     for (label, direction) in [("Options", 1.), ("Remind me", -1.), ("More", 1.)] {
-        let mut driver = Driver::new(
+        let mut driver = Tester::new(
             Gallery {
                 router: Router::new(Page::LiquidGlass),
                 ..Default::default()
@@ -419,7 +419,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
         )
         .unwrap();
         let anchor = driver.get_by_role(Button, label).unwrap().bounds;
-        let surface = |driver: &Driver<Gallery>| {
+        let surface = |driver: &Tester<Gallery>| {
             driver.placed_nodes().iter().find_map(|node| {
                 node.paint
                     .widget
@@ -489,7 +489,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
 
 #[test]
 fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -524,7 +524,7 @@ fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
     assert_eq!(pressed_glass.len(), 1);
     assert!(pressed_glass[0].rect[2] - pressed_glass[0].rect[0] > archive[2] - archive[0] + 40.);
     driver.execute(Command::PointerUp { x, y }).unwrap();
-    let click = |driver: &mut Driver<Gallery>, role: &str, label: &str| {
+    let click = |driver: &mut Tester<Gallery>, role: &str, label: &str| {
         driver
             .execute(Command::PointerClick {
                 role: role.into(),
@@ -552,7 +552,7 @@ fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
 #[test]
 fn showcase_tabs_drag_and_alarm_slider_commit_on_release() {
     use plico_renderer::SemanticRole::{Button, Tab};
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -610,7 +610,7 @@ fn showcase_tabs_drag_and_alarm_slider_commit_on_release() {
 #[test]
 fn showcase_brightness_preserves_grab_offset_and_maps_the_full_track() {
     use plico_renderer::SemanticRole::Slider;
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -622,7 +622,7 @@ fn showcase_brightness_preserves_grab_offset_and_maps_the_full_track() {
     driver
         .advance(std::time::Duration::from_millis(500))
         .unwrap();
-    let brightness = |driver: &Driver<Gallery>| driver.get_by_role(Slider, "Brightness").unwrap();
+    let brightness = |driver: &Tester<Gallery>| driver.get_by_role(Slider, "Brightness").unwrap();
     let [left, top, right, bottom] = brightness(&driver).bounds;
     let width = f64::from(right - left);
     let y = f64::from((top + bottom) * 0.5);
@@ -660,7 +660,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
     use plico_renderer::{PaintCommand, SemanticRole};
     use std::time::Duration;
 
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -681,7 +681,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
         })
         .unwrap();
     driver.advance(Duration::from_millis(110)).unwrap();
-    let face_height = |driver: &Driver<Gallery>| {
+    let face_height = |driver: &Tester<Gallery>| {
         driver
             .placed_nodes()
             .iter()
@@ -704,7 +704,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
             .unwrap()
     };
     let early_height = face_height(&driver);
-    let opacity = |driver: &Driver<Gallery>, label: &str| {
+    let opacity = |driver: &Tester<Gallery>, label: &str| {
         driver
             .placed_nodes()
             .iter()
@@ -746,7 +746,7 @@ fn liquid_showcase_reflows_live_controls_and_records_the_overview() {
 
     let scenario: PreviewScenario<Gallery> =
         serde_json::from_str(include_str!("../scenarios/liquid-showcase-recording.json")).unwrap();
-    let mut driver = Driver::new(Gallery::default(), 1920, 1080).unwrap();
+    let mut driver = Tester::new(Gallery::default(), 1920, 1080).unwrap();
     assert!(driver.get_by_role(TreeItem, "Liquid Glass").is_ok());
     driver
         .execute(Command::Click {
@@ -758,7 +758,7 @@ fn liquid_showcase_reflows_live_controls_and_records_the_overview() {
     assert_eq!(driver.view().router.current(), Page::LiquidGlassShowcase);
 
     let button = driver.get_by_role(Button, "Play").unwrap().id;
-    let bounds = |driver: &Driver<Gallery>, title| driver.get_by_role(Label, title).unwrap().bounds;
+    let bounds = |driver: &Tester<Gallery>, title| driver.get_by_role(Label, title).unwrap().bounds;
     let first = bounds(&driver, "Button");
     let second = bounds(&driver, "Action Button");
     assert_eq!(first[1], second[1]);
@@ -796,7 +796,7 @@ fn liquid_showcase_autoplay_loops_and_preserves_manual_controls() {
     };
     use std::time::Duration;
 
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlassShowcase),
             ..Default::default()
@@ -900,7 +900,7 @@ fn liquid_showcase_autoplay_loops_and_preserves_manual_controls() {
     assert!(driver.get_by_role(Button, "Play").is_ok());
 }
 
-fn showcase_paints(driver: &Driver<Gallery>, label: &str) -> bool {
+fn showcase_paints(driver: &Tester<Gallery>, label: &str) -> bool {
     driver
         .placed_nodes()
         .iter()
@@ -916,7 +916,7 @@ fn liquid_showcase_autoplay_popup_keeps_focus_and_allows_pointer_input() {
     use std::time::Duration;
 
     for (width, height) in [(1920, 1080), (1120, 820)] {
-        let mut driver = Driver::new(
+        let mut driver = Tester::new(
             Gallery {
                 router: Router::new(Page::LiquidGlassShowcase),
                 ..Default::default()
@@ -931,7 +931,7 @@ fn liquid_showcase_autoplay_popup_keeps_focus_and_allows_pointer_input() {
             label: label.into(),
             occurrence: None,
         };
-        let advance_to_delivery = |driver: &mut Driver<Gallery>| {
+        let advance_to_delivery = |driver: &mut Tester<Gallery>| {
             driver.advance(Duration::from_millis(300)).unwrap();
         };
         driver.execute(click()).unwrap();
@@ -998,7 +998,7 @@ fn clear_button_uses_the_same_press_spring_for_pointer_and_autoplay() {
     use std::time::Duration;
 
     let make_driver = |page| {
-        Driver::new(
+        Tester::new(
             Gallery {
                 router: Router::new(page),
                 ..Default::default()
@@ -1008,7 +1008,7 @@ fn clear_button_uses_the_same_press_spring_for_pointer_and_autoplay() {
         )
         .unwrap()
     };
-    let optics = |driver: &Driver<Gallery>| {
+    let optics = |driver: &Tester<Gallery>| {
         driver
             .placed_nodes()
             .iter()

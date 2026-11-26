@@ -59,7 +59,7 @@ impl App {
         let base_color = self.source.base_color();
         self.update_ime_state();
         // Immediate views may produce actions while consuming events during build.
-        self.drain_host_actions();
+        self.drain_effects();
         self.sync_pointer_cursor();
         let Some(shell) = self.state.as_mut() else {
             return;

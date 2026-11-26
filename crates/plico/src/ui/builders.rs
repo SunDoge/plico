@@ -173,7 +173,6 @@ pub struct Button<'u, 'e, 't> {
     pub(super) inner: Leaf<'u, 'e, 't>,
     pub(super) icon: Option<crate::SvgAsset>,
     pub(super) accessible_name: Option<Cow<'t, str>>,
-    pub(super) composable: bool,
 }
 macro_rules! common {
     ($name:ident) => {
@@ -563,7 +562,6 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     /// Hover and press adjust the material without changing layout or hit testing.
     pub fn material(mut self, material: crate::LiquidGlass) -> Self {
         self.inner.material = Some(material);
-        self.composable = true;
         self
     }
     /// Alignment of shortcut text/icon content along the button's main axis.
@@ -571,30 +569,22 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         self.inner.style.justify = Some(value);
         self
     }
-    #[inline(always)]
-    pub(crate) fn composable(mut self) -> Self {
-        self.composable = true;
-        self
-    }
     /// Standard text content; shares the same container as custom children.
     #[inline(always)]
     pub fn text(mut self, text: impl Into<Cow<'t, str>>) -> Self {
         self.inner.text = text.into();
-        self.composable = true;
         self
     }
     /// Decorative leading icon, sized to match the button's text.
     #[inline(always)]
     pub fn icon(mut self, asset: &crate::SvgAsset) -> Self {
         self.icon = Some(*asset);
-        self.composable = true;
         self
     }
     /// Accessible name override, required for a button with only an icon.
     #[inline(always)]
     pub fn aria_label(mut self, label: impl Into<Cow<'t, str>>) -> Self {
         self.accessible_name = Some(label.into());
-        self.composable = true;
         self
     }
     /// Custom content replaces shortcut content. An explicit accessible name wins.
@@ -606,34 +596,12 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
             .unwrap_or_else(|| std::mem::take(&mut self.inner.text));
         self.inner.children(&name, true, build)
     }
-    #[inline(always)]
     fn finish(&mut self) -> Response {
-        self.finish_target().0
-    }
-    fn finish_target(&mut self) -> (Response, crate::Entity) {
-        if !self.composable {
-            let enabled = !self.inner.style.disabled;
-            let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
-            let (entity, clicked) = self.inner.finish();
-            return (
-                Response {
-                    clicked,
-                    enabled,
-                    hovered: self.inner.hovered,
-                    focused: focused == Some(entity),
-                },
-                entity,
-            );
-        }
         let text = std::mem::take(&mut self.inner.text);
         let name = self.accessible_name.take();
         let icon = self.icon.take();
-        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
-        let mut entity = None;
-        let response = self
-            .inner
+        self.inner
             .children(name.as_deref().unwrap_or(&text), true, |cx| {
-                entity = Some(cx.parent);
                 if let Some(asset) = icon {
                     let size = cx.theme().metrics.control_icon() as f32;
                     cx.svg(&asset)
@@ -646,9 +614,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                         .ellipsis(true);
                 }
             })
-            .response;
-        let entity = entity.expect("button declaration");
-        (response.with_focused(focused == Some(entity)), entity)
+            .response
     }
     #[inline(always)]
     pub fn primary(mut self) -> Self {
@@ -713,7 +679,7 @@ impl crate::ImplicitKey for ButtonBase<'_, '_, '_> {
 }
 impl Drop for Button<'_, '_, '_> {
     fn drop(&mut self) {
-        if self.composable && self.inner.ui.is_some() {
+        if self.inner.ui.is_some() {
             self.finish();
         }
     }
@@ -898,10 +864,6 @@ impl Response {
             hovered,
             focused: false,
         }
-    }
-    pub(crate) const fn with_focused(mut self, focused: bool) -> Self {
-        self.focused = focused;
-        self
     }
     pub const fn clicked(self) -> bool {
         self.clicked
@@ -1352,7 +1314,7 @@ pub struct Shader<'u, 'e, 't> {
 }
 common!(Shader);
 impl<'e> UiContext<'e> {
-    pub fn shader<'u>(&'u mut self, asset: &crate::ShaderAsset) -> Shader<'u, 'e, 'static> {
+    pub(crate) fn shader<'u>(&'u mut self, asset: &crate::ShaderAsset) -> Shader<'u, 'e, 'static> {
         let mut inner = self.leaf(Kind::Shader, Cow::Borrowed(asset.source()));
         inner.style.width = Some(320.);
         inner.style.height = Some(180.);
@@ -1610,7 +1572,7 @@ pub struct Slider<'u, 'e, 't> {
 }
 common!(Slider);
 impl<'e> UiContext<'e> {
-    pub fn slider<'u, 't>(
+    pub(crate) fn slider<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         value: &'t mut f64,
@@ -1640,7 +1602,7 @@ impl<'e> UiContext<'e> {
             range,
         }
     }
-    pub fn range_slider<'u, 't>(
+    pub(crate) fn range_slider<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         low: &'t mut f64,

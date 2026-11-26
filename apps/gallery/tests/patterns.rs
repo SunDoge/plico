@@ -2,12 +2,12 @@
 
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 use plico_renderer::SemanticRole;
 
 #[test]
 fn patterns_repeated_rows_and_radios_keep_distinct_stable_identity() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::Patterns),
             ..Default::default()

@@ -31,7 +31,7 @@ impl ServiceApp for Application {
 | poll() | 消费完成结果，报告快照变化 |
 | set_wake_callback(wake) | 异步完成后唤醒事件循环 |
 
-读取大快照并发送消息时，`snapshot_shared()` 返回本地 Arc，避免深拷贝。快照替换不影响旧读句柄。`ServiceView` 统一负责投影、命令 drain 和唤醒；`run_service_app_with_options` 直接启动这个适配器。
+读取大快照并发送消息时，`snapshot_shared()` 返回本地 Arc，避免深拷贝。快照替换不影响旧读句柄。`ServiceView` 统一负责投影、命令 drain 和唤醒；桌面应用把 `ServiceView::new(app, services)` 传给 `run_host_view_with_options`。
 
 Future 任务使用 `plico_dev::tasks::Task` / `TaskService` 和调用方执行器，暴露 Idle、Pending、Ready(Result)、Cancelled 等状态。原生阻塞工作可使用 `plico_runtime::background::Worker`，保留 worker-local 模型或客户端，支持替换请求、过期结果过滤和合并唤醒。取消是合作式的，不代表已发出的网络请求或磁盘操作已撤销。
 

@@ -775,7 +775,7 @@ impl WgpuWindow {
             .scene_damage_coverage([self.config.width, self.config.height])
     }
     /// CPU and GPU work for the most recently submitted frame.
-    pub fn frame_budget(&self) -> crate::FrameBudget {
+    pub fn frame_budget(&self) -> plico_renderer::FrameBudgetSample {
         self.renderer.frame_budget()
     }
     /// Next one-shot idle maintenance wake on macOS/Linux.

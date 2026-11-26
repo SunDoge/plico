@@ -26,7 +26,7 @@ pub struct EffectId(pub u32);
 pub enum EffectScope {
     /// Effect belongs to the complete application runtime.
     Runtime,
-    /// Effect belongs to one Wabou window.
+    /// Effect belongs to one native window.
     Window(WindowResourceKey),
 }
 
@@ -319,10 +319,16 @@ pub enum EffectPayload {
     WindowCreate(WindowCreateRequest),
     /// Control an existing native window.
     WindowControl {
-        /// Target Plico window identifier.
-        window_id: WindowResourceKey,
+        /// Explicit target. Omitting it addresses the window hosting the frame source.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window_id: Option<WindowResourceKey>,
         /// Native operation to apply.
         command: WindowCommand,
+    },
+    /// Open a URL through the platform browser handler.
+    OpenUrl {
+        /// URL requested by the producer.
+        url: String,
     },
     /// Show a native context menu.
     ContextMenuShow(ContextMenuRequest),
@@ -359,6 +365,14 @@ pub enum EffectPayload {
 }
 
 impl EffectPayload {
+    /// Address the window hosting the frame source.
+    pub fn window(command: WindowCommand) -> Self {
+        Self::WindowControl {
+            window_id: None,
+            command,
+        }
+    }
+
     /// Return the stable operation key represented by this payload.
     pub const fn op(&self) -> EffectOp {
         match self {
@@ -380,7 +394,7 @@ impl EffectPayload {
                 ..
             } => builtin::WINDOW_SET_FULLSCREEN,
             Self::WindowControl {
-                command: WindowCommand::SetTitle(_),
+                command: WindowCommand::SetTitle(_) | WindowCommand::RestoreTitle,
                 ..
             } => builtin::WINDOW_SET_TITLE,
             Self::WindowControl {
@@ -399,6 +413,11 @@ impl EffectPayload {
                 command: WindowCommand::Show,
                 ..
             } => builtin::WINDOW_SHOW,
+            Self::WindowControl {
+                command: WindowCommand::RequestAttention,
+                ..
+            } => builtin::WINDOW_REQUEST_ATTENTION,
+            Self::OpenUrl { .. } => builtin::OPEN_URL,
             Self::ContextMenuShow(_) => builtin::CONTEXT_MENU_SHOW,
             Self::AppDirsResolve(_) => builtin::APP_DIRS_RESOLVE,
             Self::DialogOpen(_) => builtin::DIALOG_OPEN,
@@ -423,6 +442,32 @@ pub struct EffectRequest {
     pub scope: EffectScope,
     /// Typed operation payload.
     pub payload: EffectPayload,
+}
+
+/// Allocate local request IDs and stage effects until the host drains them.
+#[derive(Debug, Default)]
+pub struct EffectQueue {
+    next: u32,
+    pending: VecDeque<EffectRequest>,
+}
+
+impl EffectQueue {
+    /// Stage an effect with runtime scope and return its completion ID.
+    pub fn push(&mut self, payload: EffectPayload) -> EffectId {
+        self.next = self.next.checked_add(1).expect("effect IDs exhausted");
+        let id = EffectId(self.next);
+        self.pending.push_back(EffectRequest {
+            id,
+            scope: EffectScope::Runtime,
+            payload,
+        });
+        id
+    }
+
+    /// Take the next request in submission order.
+    pub fn pop(&mut self) -> Option<EffectRequest> {
+        self.pending.pop_front()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -626,6 +671,35 @@ mod tests {
         assert_eq!(builtin::NOTIFICATION_SHOW, EffectOp::new(6, 1));
         assert_eq!(builtin::APPLICATION_EXIT, EffectOp::new(7, 1));
         assert_eq!(builtin::APPLICATION_RELAUNCH, EffectOp::new(7, 2));
+    }
+
+    #[test]
+    fn existing_explicit_window_payloads_keep_their_wire_shape() {
+        let window_id = initial_window_resource_key(0);
+        let json = serde_json::json!({
+            "kind": "windowControl",
+            "window_id": window_id,
+            "command": "close",
+        });
+        let payload = serde_json::from_value::<EffectPayload>(json.clone()).unwrap();
+        assert_eq!(
+            payload,
+            EffectPayload::WindowControl {
+                window_id: Some(window_id),
+                command: WindowCommand::Close
+            }
+        );
+        assert_eq!(payload.op(), builtin::WINDOW_CLOSE);
+        assert_eq!(serde_json::to_value(payload).unwrap(), json);
+
+        let current = EffectPayload::window(WindowCommand::RestoreTitle);
+        assert_eq!(current.op(), builtin::WINDOW_SET_TITLE);
+        let json = serde_json::to_value(&current).unwrap();
+        assert!(json.get("window_id").is_none());
+        assert_eq!(
+            serde_json::from_value::<EffectPayload>(json).unwrap(),
+            current
+        );
     }
 
     #[test]

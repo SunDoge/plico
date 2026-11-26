@@ -1,7 +1,7 @@
 //! Reproducible CPU/allocation probe. Run with --release; no window or GPU.
 use plico::prelude::*;
 use plico_desktop::{HostView, Source};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed},
@@ -55,7 +55,7 @@ fn main() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+        .render_frame(&mut scene, &mut text, (800, 600), 1.)
         .unwrap();
     for structural in [false, true] {
         let mut samples = Vec::with_capacity(200);
@@ -73,7 +73,7 @@ fn main() {
             ACTIVE.store(true, Relaxed);
             let start = Instant::now();
             let (_, _, scene_ms) = source
-                .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .render_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let elapsed = start.elapsed().as_nanos();
             ACTIVE.store(false, Relaxed);

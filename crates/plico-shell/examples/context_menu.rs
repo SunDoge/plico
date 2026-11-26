@@ -70,8 +70,8 @@ impl FrameSource for Demo {
     }
 }
 fn main() -> plico_shell::Result<()> {
-    plico_shell::run_window_with_options(
-        Box::new(Demo::default()),
+    plico_shell::run_window(
+        Demo::default(),
         WindowOptions::new()
             .title("Plico · Right-click for menu")
             .initial_inner_size(360, 200),

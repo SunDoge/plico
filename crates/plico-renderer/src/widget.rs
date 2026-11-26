@@ -22,7 +22,7 @@ pub use crate::platform::widget::{
 use crate::style::{Paint, TextAlign};
 use crate::text::SingleLineTextMetrics;
 use crate::text::TextContext;
-use crate::{ClipboardRequest, HostAction, UiEvent, WakeCallback};
+use crate::{ClipboardRequest, EffectCompletion, EffectRequest, UiEvent, WakeCallback};
 use crate::{PaintScene, Scene};
 use kurbo::{Affine, Rect};
 use peniko::{Blob, Color, ImageAlphaType, ImageBrush, ImageData, ImageFormat};
@@ -956,8 +956,8 @@ pub trait Widget {
         }
     }
 
-    /// Drain one asynchronous request for the native window host.
-    fn take_host_action(&mut self) -> Option<HostAction> {
+    /// Drain one effect. IDs belong to this widget's request stream.
+    fn take_effect(&mut self) -> Option<EffectRequest> {
         None
     }
 
@@ -967,10 +967,8 @@ pub trait Widget {
         None
     }
 
-    /// Deliver the text of a completed clipboard read requested through
-    /// [`HostAction::ReadClipboard`]. `text` is `None` when the platform
-    /// clipboard was unavailable.
-    fn deliver_clipboard_text(&mut self, _request_id: u64, _text: Option<String>) {}
+    /// Receive an effect result with the widget's original request ID.
+    fn complete_effect(&mut self, _completion: EffectCompletion) {}
 }
 
 /// Small deterministic driver for unit-testing a widget without a window.

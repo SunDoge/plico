@@ -1,4 +1,5 @@
 //! Sparse animation work counters with an injected clock; no window or sleeps.
+use plico::widgets::{column, text};
 use plico::{UiContext, VirtualClock, component};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
@@ -13,9 +14,9 @@ impl HostView for Demo {
     #[component]
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
-        ui.column().children(|ui| {
+        column(ui).children(|ui| {
             for (id, label) in self.labels.iter().enumerate() {
-                ui.text(label.as_str())
+                text(ui, label.as_str())
                     .key(id)
                     .height(24.)
                     .width(if id == 0 && self.changed && self.layout {

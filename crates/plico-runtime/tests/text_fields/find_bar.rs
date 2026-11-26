@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers};
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 
 struct FindDemo {
@@ -44,7 +44,7 @@ fn key(key: &str, modifiers: Modifiers) -> Command {
 
 #[test]
 fn find_bar_selects_the_old_query_and_routes_native_find_shortcuts() {
-    let mut ui = Driver::new(
+    let mut ui = Tester::new(
         FindDemo {
             open: true,
             query: "old query".into(),

@@ -204,9 +204,8 @@ fn unstyled_range_keeps_two_focusable_numeric_thumbs() {
     struct Bare(Demo);
     impl HostView for Bare {
         fn show(&mut self, cx: &mut UiContext) {
-            let _ = cx
-                .range_slider("Bare", &mut self.0.low, &mut self.0.high, 0.0..=100.0)
-                .unstyled();
+            let _ =
+                range_slider(cx, "Bare", &mut self.0.low, &mut self.0.high, 0.0..=100.0).unstyled();
         }
     }
 
@@ -238,7 +237,7 @@ fn compact_vertical_range_thumb_centers_select_the_displayed_values() {
     struct Vertical(Demo);
     impl HostView for Vertical {
         fn show(&mut self, cx: &mut UiContext) {
-            cx.range_slider("Price", &mut self.0.low, &mut self.0.high, 0.0..=100.0)
+            range_slider(cx, "Price", &mut self.0.low, &mut self.0.high, 0.0..=100.0)
                 .vertical(true)
                 .step(1.);
         }

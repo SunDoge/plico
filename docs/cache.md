@@ -6,7 +6,7 @@
 ## 实现
 
 1. Scene.commands 从 Vec 改为 `CommandBuffer(Arc<Vec<PaintCommand>>)`。Scene.clone 和主题快照共享不可变命令；push/extend 等写入通过 COW 保留快照隔离。clear/reset 遇到共享存储直接丢弃引用，避免“先复制全部命令再清空”。唯一持有者清空时仍复用容量。读取、索引和迭代保持常见 Vec 用法；显式 Vec 赋值需要 `.into()`，需要拥有独立命令时使用 `.to_vec()`。
-2. FrameSource 增加可选 `render_retained_frame`：直接准备布局、编码并合成主题层，返回节点数和 build/scene 毫秒数。默认 None 保留原来的 build_frame/paint_scene/debug 路径。内置原生 shell 与开发宿主 PNG capture 已接入；保留 retained.cpu 遥测阶段与帧统计。
+2. `FrameSource::render_frame` 负责准备布局、编码与合成主题层，返回节点数和 build/scene 毫秒数。运行时直接绘制留存场景，自定义帧源默认通过布局快照和绘制方法生成场景。原生 shell 与离屏 capture 走同一入口。
 3. Plico 准备事件目标、推进动画、同步 backend 时不再顺便导出 Vec。真正调用兼容 build_frame 时才生成拥有所有权的快照。BackendStats.placed_node_clones 记录 Plico 导出时实际复制的节点数；不统计调用方自行 clone 的结果。
 4. 主树和 Tooltip 分别借用为绘制根层，renderer 编码时顺序遍历，无需拼接复制。shader 的 DPI 修正也直接读取当前保留节点，避免 paint 阶段再复制一次整树。
 

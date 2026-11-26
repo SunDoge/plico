@@ -278,6 +278,15 @@ fn load(format: Format, refresh: bool) -> Result<Arc<AnimatedImage>, String> {
 /// Desktop host wrapper; workers and decoded resources do not enter app checkpoints.
 pub struct GalleryHost {
     pub app: super::Gallery,
+    effects: plico_desktop::EffectQueue,
+}
+impl GalleryHost {
+    pub fn new(app: super::Gallery) -> Self {
+        Self {
+            app,
+            effects: plico_desktop::EffectQueue::default(),
+        }
+    }
 }
 impl plico_desktop::HostView for GalleryHost {
     fn show(&mut self, cx: &mut UiContext) {
@@ -303,12 +312,12 @@ impl plico_desktop::HostView for GalleryHost {
         }
         plico_dev::App::show(&mut self.app, cx);
     }
-    fn take_host_action(&mut self) -> Option<plico_renderer::platform::HostAction> {
-        self.app
-            .liquid_showcase
-            .card_link
-            .take()
-            .map(|url| plico_renderer::platform::HostAction::OpenUrl(url.into()))
+    fn take_effect(&mut self) -> Option<plico_desktop::EffectRequest> {
+        if let Some(url) = self.app.liquid_showcase.card_link.take() {
+            self.effects
+                .push(plico_desktop::EffectPayload::OpenUrl { url: url.into() });
+        }
+        self.effects.pop()
     }
     fn theme(&self) -> Theme {
         plico_dev::App::theme(&self.app)

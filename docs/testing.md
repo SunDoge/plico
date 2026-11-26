@@ -1,12 +1,12 @@
 # Deterministic application testing
 
 `plico_runtime::testing` (also re-exported by `plico_desktop`) provides a shared
-command protocol and a renderer-independent `Driver<V: HostView>`. `Tester` is
-the application-facing name for the same type and adds no second runtime.
+command protocol and a renderer-independent `Tester<V: HostView>` for exercising
+the application runtime with a virtual clock.
 
 ```rust,ignore
-use plico_runtime::testing::{Command, Driver};
-let mut ui = Driver::new(MyView::default(), 820, 480)?;
+use plico_runtime::testing::{Command, Tester};
+let mut ui = Tester::new(MyView::default(), 820, 480)?;
 ui.execute(Command::Click {
     role: "button".into(), label: "Increment".into(), occurrence: None,
 })?;
@@ -43,9 +43,9 @@ controls with the same name still require a role/occurrence query.
 ### Feedback while developing a desktop component
 
 Express the reported failure as an observable rule before changing the implementation.
-For a state transition, send the real input through `Driver` and assert both the
+For a state transition, send the real input through `Tester` and assert both the
 application value and its exposed control state. For a scrolling or animation
-bug, use `Driver::check_frames` to check a relationship between consecutive
+bug, use `Tester::check_frames` to check a relationship between consecutive
 semantic snapshots. Return a message with the measured values when it fails.
 The driver reports the first failing frame and elapsed virtual time.
 
@@ -105,10 +105,10 @@ are errors; repeated labels in click/focus commands require a zero-based `occurr
 are rejected. Declaration errors surface directly. Set explicit focus before a
 keyboard test rather than assuming an OS restored focus in a particular way.
 Key commands represent key-down events with no modifiers; specialized modifier,
-keyup or pointer tests can use `Driver::dispatch_event` with a typed `UiEvent`.
+keyup or pointer tests can use `Tester::dispatch_event` with a typed `UiEvent`.
 
-`Driver::view` exposes immutable application state for assertions;
-`Driver::update_view` mutates it, requests a rebuild and settles the resulting
+`Tester::view` exposes immutable application state for assertions;
+`Tester::update_view` mutates it, requests a rebuild and settles the resulting
 frame as one operation. The driver deliberately keeps its `Source`, Engine and
 Adapter private. Structural tests use `placed_nodes`, `theme`, `declarations`
 and `snapshot` instead of reaching into retained runtime storage.

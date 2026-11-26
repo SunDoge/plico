@@ -124,52 +124,6 @@ impl App {
         }));
     }
 
-    pub(super) fn drain_host_actions(&mut self) -> bool {
-        let mut handled = false;
-        while let Some(action) = self.source.take_host_action() {
-            handled = true;
-            match action {
-                HostAction::Window(command) => apply_window_command(self, command),
-                // Native-widget backends emit completed clipboard writes.
-                // Read requests with widget request IDs still belong to the
-                // effect bridge and must not be silently dropped here.
-                HostAction::SetClipboard(text) => {
-                    if let Some(clipboard) = self.clipboard_mut() {
-                        let _ = clipboard.set_text(text);
-                    }
-                }
-                HostAction::ReadClipboard { .. } => {
-                    tracing::error!(
-                        action = ?action,
-                        "clipboard widget action reached the shell untranslated"
-                    );
-                }
-                HostAction::OpenUrl(url) => {
-                    if let Some(url) = allowed_external_url(&url) {
-                        let _ = open::that_detached(url.as_str());
-                    } else {
-                        tracing::warn!(url, "refused unsafe external URL");
-                    }
-                }
-                HostAction::SetWindowTitle(title) => {
-                    if let Some(shell) = self.state.as_ref() {
-                        shell
-                            .window()
-                            .set_title(title.as_deref().unwrap_or(&self.window_options.title));
-                    }
-                }
-                HostAction::RequestAttention => {
-                    if let Some(shell) = self.state.as_ref() {
-                        shell
-                            .window()
-                            .request_user_attention(Some(UserAttentionType::Informational));
-                    }
-                }
-            }
-        }
-        handled
-    }
-
     pub(super) fn drain_effects(&mut self) -> bool {
         let mut handled = false;
         while let Some(request) = self.source.take_effect() {
@@ -227,12 +181,36 @@ impl App {
                     });
                 }
                 crate::EffectPayload::WindowControl { window_id, command } => {
-                    self.pending_window_commands.push((window_id, command));
+                    match window_id {
+                        Some(window_id) => self.pending_window_commands.push((window_id, command)),
+                        None if command == WindowCommand::Show => {
+                            self.pending_window_commands
+                                .push((self.window_key, command));
+                        }
+                        None => apply_window_command(self, command),
+                    }
                     self.source.complete_effect(crate::EffectCompletion {
                         id,
                         op,
                         result: crate::EffectResult::Unit,
                     });
+                }
+                crate::EffectPayload::OpenUrl { url } => {
+                    let result = match allowed_external_url(&url) {
+                        Some(url) => match open::that_detached(url.as_str()) {
+                            Ok(()) => crate::EffectResult::Unit,
+                            Err(error) => crate::EffectResult::Error {
+                                code: crate::EffectErrorCode::PlatformFailure,
+                                message: error.to_string(),
+                            },
+                        },
+                        None => crate::EffectResult::Error {
+                            code: crate::EffectErrorCode::InvalidRequest,
+                            message: "refused unsafe external URL".into(),
+                        },
+                    };
+                    self.source
+                        .complete_effect(crate::EffectCompletion { id, op, result });
                 }
                 crate::EffectPayload::AppDirsResolve(directories) => {
                     self.source.complete_effect(crate::EffectCompletion {

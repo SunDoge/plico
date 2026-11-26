@@ -65,11 +65,10 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
-    plico_desktop::run_view_with_options(
+    plico_desktop::run_view(
         TextFixture::default(),
         plico_desktop::WindowOptions::new()
             .title("Plico — native text acceptance")
-            .renderer(plico_desktop::RenderBackend::Wgpu)
             .initial_inner_size(780, 680)
             .min_inner_size(540, 400),
     )

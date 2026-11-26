@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use plico_shell::{
         ExtensionContext, WindowResourceKey,
         hotkeys::{GlobalHotkeyBinding, GlobalHotkeyExtension, HotkeyEvent},
-        initial_window_resource_key, run_windows_with_factory_and_extensions,
+        initial_window_resource_key, run_windows,
     };
     struct Background;
     impl FrameSource for Background {
@@ -56,15 +56,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "Focus another application, then press Ctrl/Cmd+Shift+K to toggle this window. Close it to exit."
     );
-    run_windows_with_factory_and_extensions(
+    run_windows(
         vec![(
             Box::new(Background),
             WindowOptions::new()
                 .title("Plico global hotkey — Ctrl/Cmd+Shift+K")
                 .initial_inner_size(560, 240),
         )],
-        None,
-        vec![Box::new(extension)],
+        plico_shell::EventLoopOptions {
+            extensions: vec![Box::new(extension)],
+            ..Default::default()
+        },
     )?;
     Ok(())
 }

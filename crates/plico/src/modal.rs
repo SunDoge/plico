@@ -62,7 +62,7 @@ pub struct Modal<'u, 'e, 's> {
     scrim_opacity: Option<f32>,
 }
 impl<'e> UiContext<'e> {
-    pub fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
+    pub(crate) fn modal<'u, 's>(&'u mut self, state: &'s mut ModalState) -> Modal<'u, 'e, 's> {
         let key = self.engine.auto_key(self.parent);
         Modal {
             ui: self,
@@ -512,7 +512,7 @@ pub struct Popover<'u, 'e, 's> {
     trigger_icon: Option<(crate::SvgAsset, bool)>,
 }
 impl<'e> UiContext<'e> {
-    pub fn popover<'u, 's>(
+    pub(crate) fn popover<'u, 's>(
         &'u mut self,
         state: &'s mut PopoverState,
         label: impl Into<Cow<'s, str>>,

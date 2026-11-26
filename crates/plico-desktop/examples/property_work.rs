@@ -1,7 +1,7 @@
 //! Native backend CPU probe; no window, GPU submission or present.
 use plico::prelude::*;
 use plico_desktop::{HostView, Source};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use std::time::Instant;
 
 #[derive(Clone, Copy, Debug)]
@@ -61,14 +61,14 @@ fn main() {
             let mut text = TextContext::new();
             let mut scene = Scene::new();
             source
-                .render_retained_frame(&mut scene, &mut text, (480, 360), 1.)
+                .render_frame(&mut scene, &mut text, (480, 360), 1.)
                 .unwrap();
             let mut total = [0u128; 7];
             for index in 0..50 {
                 source.update(|view| view.flip = !view.flip);
                 let start = Instant::now();
                 source
-                    .render_retained_frame(&mut scene, &mut text, (480, 360), 1.)
+                    .render_frame(&mut scene, &mut text, (480, 360), 1.)
                     .unwrap();
                 let elapsed = start.elapsed().as_nanos();
                 let stats = source.frame_diagnostics().backend;

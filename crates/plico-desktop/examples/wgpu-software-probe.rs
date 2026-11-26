@@ -1,7 +1,7 @@
 //! Paced wgpu software-adapter probe. Pin Lavapipe's ICD externally; this probe
 //! never changes driver selection. All animation uses the injected clock.
 use plico::prelude::*;
-use plico_desktop::{HostView, RenderBackend, Source, WindowOptions};
+use plico_desktop::{EffectPayload, EffectQueue, EffectRequest, HostView, Source, WindowOptions};
 use plico_renderer::{FrameSource, Scene, TextContext};
 use std::time::{Duration, Instant};
 static EFFECT: ShaderAsset = ShaderAsset::new(
@@ -22,12 +22,15 @@ struct Demo {
     start: Option<Duration>,
     duration: Duration,
     close: bool,
+    effects: EffectQueue,
 }
 impl HostView for Demo {
-    fn take_host_action(&mut self) -> Option<plico_desktop::HostAction> {
-        std::mem::take(&mut self.close).then_some(plico_desktop::HostAction::Window(
-            plico_desktop::WindowCommand::Close,
-        ))
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        if std::mem::take(&mut self.close) {
+            self.effects
+                .push(EffectPayload::window(plico_desktop::WindowCommand::Close));
+        }
+        self.effects.pop()
     }
     #[component]
     #[rustfmt::skip]
@@ -104,9 +107,6 @@ struct Paced {
     active: bool,
 }
 impl FrameSource for Paced {
-    fn set_device_scale(&mut self, scale: f64) {
-        self.source.set_device_scale(scale);
-    }
     fn build_frame(
         &mut self,
         text: &mut TextContext,
@@ -115,16 +115,16 @@ impl FrameSource for Paced {
     ) -> Vec<plico_renderer::layout::PlacedNode> {
         self.source.build_frame(text, w, h)
     }
-    fn render_retained_frame(
+    fn render_frame(
         &mut self,
         scene: &mut Scene,
         text: &mut TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
-        let result = self.source.render_retained_frame(scene, text, size, scale);
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
+        let result = self.source.render_frame(scene, text, size, scale);
         self.next = Instant::now() + Duration::from_secs_f64(1. / 60.);
-        result
+        result.map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn base_color(&self) -> peniko::Color {
         self.source.base_color()
@@ -135,20 +135,19 @@ impl FrameSource for Paced {
     fn animation_deadline(&self) -> Option<Instant> {
         self.active.then_some(self.next)
     }
-    fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
-        self.source.take_host_action()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.source.take_effect()
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = Options::parse();
-    let renderer = RenderBackend::Wgpu;
     if !["idle", "geometry", "animation", "scroll", "both", "shader"]
         .contains(&options.workload.as_str())
     {
         return Err("invalid workload".into());
     }
     let _trace = plico_shell::telemetry::init_tracing();
-    tracing::info!(renderer=?renderer,workload=%options.workload,"probe.start");
+    tracing::info!(renderer="wgpu",workload=%options.workload,"probe.start");
     let active = options.workload != "idle";
     let app = Demo {
         workload: options.workload,
@@ -158,8 +157,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start: None,
         duration: Duration::from_secs(options.seconds),
         close: false,
+        effects: EffectQueue::default(),
     };
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         Paced {
             source: Source::new(app),
             next: Instant::now(),
@@ -167,7 +167,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         WindowOptions::new()
             .title("Plico CPU fallback comparison")
-            .renderer(renderer)
             .initial_inner_size(800, 700),
     )?;
     Ok(())
@@ -186,13 +185,14 @@ mod tests {
                 start: None,
                 duration: Duration::from_secs(10),
                 close: false,
+                effects: EffectQueue::default(),
             };
             let mut source = Source::with_clock(app, clock.clone());
             let mut text = TextContext::new();
             let mut scene = Scene::new();
             for _ in 0..3 {
                 source
-                    .render_retained_frame(&mut scene, &mut text, (800, 700), 1.)
+                    .render_frame(&mut scene, &mut text, (800, 700), 1.)
                     .unwrap();
                 assert!(source.placed_nodes().len() > 20);
                 clock.advance(Duration::from_millis(17)).unwrap();

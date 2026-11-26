@@ -3,6 +3,7 @@
 //! Installs the shell's tracing subscriber exactly like the window entry
 //! point, drives some frames through a source with shaping work, then drops
 //! the guard — which is what flushes the trace JSON.
+use plico::widgets::{column, text};
 use plico::{UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{Scene, TextContext};
@@ -12,10 +13,9 @@ struct Demo {
 }
 impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
-        cx.column().children(|cx| {
+        column(cx).children(|cx| {
             for i in 0..200 {
-                cx.text(format!("Row {i} rev {}", self.revision))
-                    .key(i as u64);
+                text(cx, format!("Row {i} rev {}", self.revision)).key(i as u64);
             }
         });
     }

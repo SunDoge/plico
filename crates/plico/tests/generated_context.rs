@@ -9,7 +9,7 @@ fn empty(cx: &mut UiContext) {}
 fn empty_children(cx: &mut UiContext) {
     column(cx) + |_cx| {};
     column(cx).end();
-    text_empty(cx);
+    text(cx, "");
     column(cx).children(|inner| {
         row(inner) + |_inner| {};
     });

@@ -59,23 +59,6 @@ impl<S: FrameSource> ApplicationHandler for Host<S> {
         use winit::event_loop::ControlFlow;
         let mut flow = ControlFlow::Wait;
         let mut completed = false;
-        while let Some(action) = self.source.take_host_action() {
-            use plico_renderer::HostAction;
-            match action {
-                HostAction::OpenUrl(raw) => {
-                    if let Some(url) = plico_renderer::platform::allowed_external_url(&raw)
-                        && links::open(&self.app, url.as_str()).is_err()
-                    {
-                        eprintln!("Android could not open the browser");
-                    }
-                }
-                HostAction::SetClipboard(text) => {
-                    let _ = clipboard::text(&self.app, Some(&text));
-                }
-                HostAction::Window(plico_renderer::WindowCommand::Close) => events.exit(),
-                _ => {}
-            }
-        }
         while let Some(request) = self.source.take_effect() {
             use plico_renderer::platform::{
                 EffectCompletion, EffectErrorCode, EffectPayload, EffectResult,
@@ -88,7 +71,26 @@ impl<S: FrameSource> ApplicationHandler for Host<S> {
                 EffectPayload::ClipboardWrite { text } => clipboard::text(&self.app, Some(&text))
                     .map(|_| EffectResult::Unit)
                     .unwrap_or_else(clipboard::failure),
-                EffectPayload::ApplicationExit => {
+                EffectPayload::OpenUrl { url } => {
+                    match plico_renderer::platform::allowed_external_url(&url) {
+                        Some(url) if links::open(&self.app, url.as_str()).is_ok() => {
+                            EffectResult::Unit
+                        }
+                        Some(_) => EffectResult::Error {
+                            code: EffectErrorCode::PlatformFailure,
+                            message: "Android could not open the browser".into(),
+                        },
+                        None => EffectResult::Error {
+                            code: EffectErrorCode::InvalidRequest,
+                            message: "refused unsafe external URL".into(),
+                        },
+                    }
+                }
+                EffectPayload::WindowControl {
+                    window_id: None,
+                    command: plico_renderer::WindowCommand::Close,
+                }
+                | EffectPayload::ApplicationExit => {
                     events.exit();
                     EffectResult::Unit
                 }
@@ -345,11 +347,10 @@ impl<S: FrameSource> ApplicationHandler for Host<S> {
                 let logical = size.to_logical::<u32>(scale);
                 let mut scene = Scene::new();
                 self.source
-                    .build_and_paint(
+                    .render_frame(
                         &mut scene,
                         &mut self.text,
-                        logical.width,
-                        logical.height,
+                        (logical.width, logical.height),
                         scale,
                     )
                     .expect("build Android frame");

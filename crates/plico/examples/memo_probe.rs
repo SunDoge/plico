@@ -1,5 +1,6 @@
 //! Core-only update-cost experiment, not a memo API or renderer benchmark.
 //! Run: cargo run --release -p plico --example memo_probe
+use plico::widgets::{row, text};
 use plico::{Engine, UiContext};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -61,19 +62,19 @@ impl Fixture {
     }
     fn show(&self, ui: &mut UiContext<'_>, labels: Labels, changed: bool) {
         for (i, label) in self.labels.iter().enumerate() {
-            ui.row().key(i).gap(8.).padding(4.).children(|ui| {
+            row(ui).key(i).gap(8.).padding(4.).children(|ui| {
                 match labels {
                     Labels::Borrowed => {
-                        ui.text(label.as_str());
+                        text(ui, label.as_str());
                     }
                     Labels::Format => {
-                        ui.text(format!("Node {i:05} · Tokyo · available"));
+                        text(ui, format!("Node {i:05} · Tokyo · available"));
                     }
                     Labels::Buffered => {
                         plico::text!(ui, "Node {i:05} · Tokyo · available");
                     }
                 }
-                ui.text(if changed && i == 0 { "Busy" } else { "Idle" });
+                text(ui, if changed && i == 0 { "Busy" } else { "Idle" });
             });
         }
     }

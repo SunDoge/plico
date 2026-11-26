@@ -1,5 +1,5 @@
 //! Repeatable application previews: typed fixture state, scripted input, virtual time.
-use crate::{CapturedFrame, HostView, Source};
+use crate::{CaptureOptions, CaptureSession, CapturedFrame, HostView, Source};
 use plico::{ClockError, VirtualClock};
 use plico_renderer::{FrameSource, TextContext};
 use plico_runtime::testing::{Command, dispatch};
@@ -69,6 +69,15 @@ pub struct PreviewViewport {
     pub height: u32,
     pub scale: f64,
 }
+impl PreviewViewport {
+    pub(crate) fn capture_options(self) -> CaptureOptions {
+        CaptureOptions {
+            scale: self.scale,
+            ..CaptureOptions::new(self.width, self.height)
+        }
+    }
+}
+
 impl Default for PreviewViewport {
     fn default() -> Self {
         Self {
@@ -110,112 +119,14 @@ impl<V: HostView, W: plico_renderer::Widget> PreviewSource for plico_runtime::Su
         &mut self.source
     }
 }
-/// Reuses backend resources across recipes, never application or input state.
-/// Each render still constructs a fresh Source, TextContext and VirtualClock.
-/// This is a bounded batch helper, not a live application session.
-pub struct PreviewSession {
-    backend: crate::RenderBackend,
-    renderer: Option<crate::capture::CaptureRenderer>,
-    #[cfg(feature = "wgpu")]
-    force_general_pipelines: bool,
-    #[cfg(feature = "wgpu")]
-    force_no_occlusion_culling: bool,
-    #[cfg(feature = "wgpu")]
-    force_no_ring_splitting: bool,
-}
-impl PreviewSession {
-    pub fn new(backend: crate::RenderBackend) -> Self {
-        Self {
-            backend,
-            renderer: None,
-            #[cfg(feature = "wgpu")]
-            force_general_pipelines: false,
-            #[cfg(feature = "wgpu")]
-            force_no_occlusion_culling: false,
-            #[cfg(feature = "wgpu")]
-            force_no_ring_splitting: false,
-        }
-    }
-    /// Compare captures with every quad class drawn by the general shader.
-    #[cfg(feature = "wgpu")]
-    pub fn force_general_pipelines(&mut self, force: bool) {
-        self.force_general_pipelines = force;
-        if let Some(renderer) = &mut self.renderer {
-            renderer.force_general_pipelines(force);
-        }
-    }
-    /// Disable conservative painter-order culling for pixel/performance A/Bs.
-    #[cfg(feature = "wgpu")]
-    pub fn force_no_occlusion_culling(&mut self, force: bool) {
-        self.force_no_occlusion_culling = force;
-        if let Some(renderer) = &mut self.renderer {
-            renderer.force_no_occlusion_culling(force);
-        }
-    }
-    /// Disable large border-only scissor splitting for pixel/performance A/Bs.
-    #[cfg(feature = "wgpu")]
-    pub fn force_no_ring_splitting(&mut self, force: bool) {
-        self.force_no_ring_splitting = force;
-        if let Some(renderer) = &mut self.renderer {
-            renderer.force_no_ring_splitting(force);
-        }
-    }
-    /// Renderer CPU stages and GPU time from the most recent capture.
-    pub fn last_frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
-        self.renderer
-            .as_ref()
-            .and_then(|renderer| renderer.frame_budget())
-    }
-    /// Renderer batching and specialized-pipeline counters from the latest capture.
-    #[cfg(feature = "wgpu")]
-    pub fn last_batch_stats(&self) -> Option<plico_wgpu::FrameBatchStats> {
-        self.renderer
-            .as_ref()
-            .and_then(|renderer| renderer.batch_stats())
-    }
-    /// Name reported by the active GPU adapter, for reproducible profiling.
-    pub fn adapter_name(&self) -> Option<&str> {
-        self.renderer
-            .as_ref()
-            .and_then(|renderer| renderer.adapter_name())
-    }
-    pub(crate) fn renderer(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<&mut crate::capture::CaptureRenderer, crate::CaptureError> {
-        if self.renderer.is_none() {
-            let renderer = crate::capture::CaptureRenderer::new(self.backend, width, height)?;
-            #[cfg(feature = "wgpu")]
-            let mut renderer = renderer;
-            #[cfg(feature = "wgpu")]
-            renderer.force_general_pipelines(self.force_general_pipelines);
-            #[cfg(feature = "wgpu")]
-            renderer.force_no_occlusion_culling(self.force_no_occlusion_culling);
-            #[cfg(feature = "wgpu")]
-            renderer.force_no_ring_splitting(self.force_no_ring_splitting);
-            self.renderer = Some(renderer);
-        }
-        Ok(self.renderer.as_mut().unwrap())
-    }
-}
 impl<S> PreviewScenario<S> {
     pub fn render<V: HostView>(
         self,
         create: impl FnOnce(S) -> V,
     ) -> Result<CapturedFrame, PreviewError> {
-        self.render_with_backend(crate::RenderBackend::Auto, create)
+        self.render_in(&mut CaptureSession::default(), create)
     }
-    /// Select the same backend for scenario layout, input geometry and final capture.
-    pub fn render_with_backend<V: HostView>(
-        self,
-        backend: crate::RenderBackend,
-        create: impl FnOnce(S) -> V,
-    ) -> Result<CapturedFrame, PreviewError> {
-        self.render_source_with_backend(backend, |state, clock| {
-            Source::with_clock(create(state), clock)
-        })
-    }
+
     /// Native surfaces use the supplied clock when constructing their source.
     /// Scripted commands target Plico controls; native widget internals remain
     /// the widget's own testing contract.
@@ -223,18 +134,12 @@ impl<S> PreviewScenario<S> {
         self,
         create: impl FnOnce(S, VirtualClock) -> F,
     ) -> Result<CapturedFrame, PreviewError> {
-        self.render_source_with_backend(crate::RenderBackend::Auto, create)
+        self.render_source_in(&mut CaptureSession::default(), create)
     }
-    pub fn render_source_with_backend<F: PreviewSource>(
-        self,
-        backend: crate::RenderBackend,
-        create: impl FnOnce(S, VirtualClock) -> F,
-    ) -> Result<CapturedFrame, PreviewError> {
-        self.render_source_in(&mut PreviewSession::new(backend), create)
-    }
+
     pub fn render_in<V: HostView>(
         self,
-        session: &mut PreviewSession,
+        session: &mut CaptureSession,
         create: impl FnOnce(S) -> V,
     ) -> Result<CapturedFrame, PreviewError> {
         self.render_source_in(session, |state, clock| {
@@ -243,19 +148,18 @@ impl<S> PreviewScenario<S> {
     }
     pub fn render_source_in<F: PreviewSource>(
         self,
-        session: &mut PreviewSession,
+        session: &mut CaptureSession,
         create: impl FnOnce(S, VirtualClock) -> F,
     ) -> Result<CapturedFrame, PreviewError> {
-        let (width, height) = self.physical_size()?;
+        self.physical_size()?;
         let v = self.viewport;
         let clock = VirtualClock::default();
         let mut source = create(self.state, clock.clone());
         let mut text = TextContext::new();
         let renderer = session
-            .renderer(width, height)
+            .renderer()
             .map_err(|source| PreviewError::Capture { source })?;
-        renderer
-            .configure_text(&mut text, v.scale)
+        crate::capture::configure_text(renderer, &mut text, v.scale)
             .map_err(|source| PreviewError::Capture { source })?;
         build_input_frame(&mut source, &mut text, v)?;
         for step in self.steps {
@@ -268,12 +172,9 @@ impl<S> PreviewScenario<S> {
             .advance(Duration::from_millis(self.time_ms))
             .map_err(clock_error)?;
         build_input_frame(&mut source, &mut text, v)?;
-        let image = crate::capture(&mut source)
-            .size(v.width, v.height)
-            .scale(v.scale)
-            .render_with_borrowed(renderer, &mut text)
-            .map_err(|source| PreviewError::Capture { source })?;
-        Ok(image)
+        crate::capture::render_with_text(&mut source, renderer, &mut text, v.capture_options())
+            .map(|(image, _)| image)
+            .map_err(|source| PreviewError::Capture { source })
     }
     /// Sample a script at a fixed frame rate and send its premultiplied frames
     /// to a caller-owned sink. Commands run on their exact virtual timestamps.
@@ -284,7 +185,7 @@ impl<S> PreviewScenario<S> {
         emit: impl FnMut(Duration, CapturedFrame) -> Result<(), PreviewError>,
     ) -> Result<(), PreviewError> {
         self.record_source_frames_in(
-            &mut PreviewSession::new(crate::RenderBackend::Auto),
+            &mut CaptureSession::default(),
             fps,
             |state, clock| Source::with_clock(create(state), clock),
             emit,
@@ -294,13 +195,13 @@ impl<S> PreviewScenario<S> {
     /// The fixed-rate recorder for callers that own a renderer session or native surface.
     pub fn record_source_frames_in<F: PreviewSource>(
         self,
-        session: &mut PreviewSession,
+        session: &mut CaptureSession,
         fps: u32,
         create: impl FnOnce(S, VirtualClock) -> F,
         mut emit: impl FnMut(Duration, CapturedFrame) -> Result<(), PreviewError>,
     ) -> Result<(), PreviewError> {
         validate_fps(fps)?;
-        let (width, height) = self.physical_size()?;
+        self.physical_size()?;
         let viewport = self.viewport;
         let end_ms = self
             .steps
@@ -314,10 +215,9 @@ impl<S> PreviewScenario<S> {
         let mut source = create(self.state, clock.clone());
         let mut text = TextContext::new();
         let renderer = session
-            .renderer(width, height)
+            .renderer()
             .map_err(|source| PreviewError::Capture { source })?;
-        renderer
-            .configure_text(&mut text, viewport.scale)
+        crate::capture::configure_text(renderer, &mut text, viewport.scale)
             .map_err(|source| PreviewError::Capture { source })?;
         let mut steps = self.steps.into_iter().peekable();
         let mut step_time_ms = 0;
@@ -339,11 +239,13 @@ impl<S> PreviewScenario<S> {
             // the encoder's final frame index falls just beyond it.
             let time = timestamp.min(Duration::from_millis(end_ms));
             clock.set(time).map_err(clock_error)?;
-            let image = crate::capture(&mut source)
-                .size(viewport.width, viewport.height)
-                .scale(viewport.scale)
-                .render_with_borrowed(renderer, &mut text)
-                .map_err(|source| PreviewError::Capture { source })?;
+            let (image, _) = crate::capture::render_with_text(
+                &mut source,
+                renderer,
+                &mut text,
+                viewport.capture_options(),
+            )
+            .map_err(|source| PreviewError::Capture { source })?;
             emit(time, image)?;
         }
         Ok(())
@@ -477,7 +379,7 @@ fn build_input_frame<F: PreviewSource>(
 ) -> Result<(), PreviewError> {
     source
         .ui_source()
-        .try_build_frame(text, viewport.width, viewport.height)
+        .prepare_layout(text, (viewport.width, viewport.height))
         .map_err(|error| PreviewError::Input {
             source: plico_runtime::testing::Error::Declaration {
                 message: error.to_string(),

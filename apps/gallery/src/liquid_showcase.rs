@@ -288,23 +288,16 @@ fn message_button(
 const DISTANCE_SLOTS: [[u8; 7]; 4] = [*b"    8.4", *b"   52.1", *b"  214  ", *b"2,480  "];
 
 fn distance_readout(cx: &mut UiContext, tab: usize) {
-    let now = cx.now();
-    let motion = cx.state(|| (tab, tab, now));
-    let (mut from, mut to, mut started) = motion.get();
-    if to != tab {
-        from = to;
-        to = tab;
-        started = now;
-        motion.set((from, to, started));
-    }
-    let time = if cx.display_preferences().reduce_motion {
-        1.
-    } else {
-        (now.saturating_sub(started).as_secs_f32() / 0.9).min(1.)
-    };
-    let progress = if time < 1. && from != to {
-        cx.request_animation_frame();
-        let t = time * 12.;
+    let state = cx.state(plico::ContentTransition::default);
+    let mut transition = state.get();
+    let plico::ContentTransitionFrame {
+        from,
+        to,
+        progress: time,
+    } = transition.sample(cx, tab, std::time::Duration::from_millis(900));
+    state.set(transition);
+    let progress = if time < 1. {
+        let t = time as f32 * 12.;
         (1. - (-t).exp() * (1. + t + t * t / 2. + t * t * t / 6.)).min(1.)
     } else {
         1.
@@ -634,7 +627,7 @@ fn demo(cx: &mut UiContext, title: &str, s: &mut Showcase, w: f32, compact: bool
                     svg(cx, &crate::icons::MOON)
                         .size(16., 16.)
                         .color(Color::Muted);
-                    liquid::range_slider(
+                    liquid::glass_slider(
                         cx,
                         "Brightness",
                         &mut s.brightness,

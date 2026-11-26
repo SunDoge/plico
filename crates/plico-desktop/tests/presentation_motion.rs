@@ -256,3 +256,46 @@ fn presentation_motion_only_visits_placed_nodes_when_children_are_collapsed() {
     assert!((s.visual_bounds(sibling).unwrap()[0] - old[0] - 80.).abs() < 0.01);
     assert!(!s.has_anim());
 }
+
+#[test]
+fn pinned_rect_preserves_layout_while_advancing_fractionally() {
+    const REST: [f32; 4] = [40.25, 20.5, 80., 40.];
+
+    struct Demo([f32; 4]);
+    impl HostView for Demo {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx).width(400.).height(200.).children(|cx| {
+                column(cx)
+                    .pinned_rect(PinnedRect::new(REST, self.0).unwrap())
+                    .children(|cx| {
+                        button(cx).text("Pinned target").width(80.).height(40.);
+                    });
+            });
+        }
+    }
+
+    let mut source = Source::new(Demo(REST));
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 400, 200);
+    let rest_bounds = source
+        .semantics()
+        .node_by_role(SemanticRole::Button, "Pinned target", None)
+        .unwrap()
+        .bounds;
+    for shown in [[40.5, 20.625, 100., 50.], [40.625, 20.75, 90., 45.], REST] {
+        source.update(|view| view.0 = shown);
+        source.build_frame(&mut text, 400, 200);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+        let bounds = source
+            .semantics()
+            .node_by_role(SemanticRole::Button, "Pinned target", None)
+            .unwrap()
+            .bounds;
+        // Carry the fractional displacement relative to the actual snapped
+        // layout origin. The final sample must exactly recover that origin.
+        let left = rest_bounds[0] + shown[0] - REST[0];
+        let top = rest_bounds[1] + shown[1] - REST[1];
+        assert_eq!(bounds, [left, top, left + shown[2], top + shown[3]]);
+    }
+}

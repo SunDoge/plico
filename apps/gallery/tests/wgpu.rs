@@ -34,9 +34,7 @@ fn gallery_pages_native_text_and_damage_match_full_replay() {
             let mut scene = Scene::new();
             for delta in [0, 200, 2000, 15000] {
                 clock.advance(Duration::from_millis(delta)).unwrap();
-                if let Err(error) =
-                    source.try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
-                {
+                if let Err(error) = source.render_frame(&mut scene, &mut text, (1120, 820), 1.) {
                     failures.push(format!("{language:?}/{page:?}: {error}"));
                     break;
                 }
@@ -76,7 +74,7 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
     let app = Gallery::default();
     let widget = plico_renderer::image_surface::ImageSurface::new(app.images.surface.clone());
     let mut source = ZoomSource::new(Box::new(SurfaceSource::new(
-        gallery::images::GalleryHost { app },
+        gallery::images::GalleryHost::new(app),
         widget,
         "image-preview",
     )));
@@ -87,16 +85,9 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
     renderer.configure_text(&mut text, 1.).unwrap();
     for zoom in [1., 1.25, 1.5, 2., 1.] {
         assert!(controller.set(zoom));
-        source.set_device_scale(1.);
         let mut scene = Scene::new();
-        assert!(
-            source
-                .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
-                .unwrap()
-                .is_none()
-        );
         source
-            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .render_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
         assert!(
             !text.set_native_paragraph_scale(zoom),
@@ -132,7 +123,7 @@ fn zoomed_surface_host_measures_and_paints_native_text_at_the_same_scale() {
             .unwrap();
         assert_eq!(actual, expected);
         source
-            .build_and_paint(&mut scene, &mut text, 1120, 820, 1.)
+            .render_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
         assert_eq!(
             generation,
@@ -183,21 +174,20 @@ fn animated_image_surface_plays_pauses_hides_and_reuses_uploaded_frames() {
         let clock = VirtualClock::default();
         let widget = ImageSurface::with_clock(state.clone(), Arc::new(clock.clone()));
         let mut source = SurfaceSource::with_clock(
-            gallery::images::GalleryHost { app },
+            gallery::images::GalleryHost::new(app),
             widget,
             "image-preview",
             clock.clone(),
         );
         let mut text = TextContext::new();
         partial.configure_text(&mut text, scale).unwrap();
-        source.set_device_scale(scale);
         let size = [(1120. * scale) as u32, (820. * scale) as u32];
         let mut scene = Scene::new();
         let mut frame = |source: &mut SurfaceSource<gallery::images::GalleryHost, ImageSurface>,
                          partial: &mut Renderer| {
             source.poll_async();
             source
-                .build_and_paint(&mut scene, &mut text, 1120, 820, scale)
+                .render_frame(&mut scene, &mut text, (1120, 820), scale)
                 .unwrap();
             assert!(text.take_native_paragraph_error().is_none());
             let actual = partial.render_scene(&scene, size, [1.; 4], true).unwrap();
@@ -331,7 +321,7 @@ fn mines_reveal_reuses_native_paragraphs_and_partial_pixels_match_full() {
     let mut scene = Scene::new();
     clock.set(Duration::from_millis(300)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     renderer
         .render_scene(&scene, [1120, 820], [1.; 4], true)
@@ -340,7 +330,7 @@ fn mines_reveal_reuses_native_paragraphs_and_partial_pixels_match_full() {
     for ms in [350, 367, 400, 450, 500, 600] {
         clock.set(Duration::from_millis(ms)).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+            .render_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
         let actual = renderer
             .render_scene(&scene, [1120, 820], [1.; 4], true)
@@ -396,14 +386,14 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     renderer.configure_text(&mut text, 1.).unwrap();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     renderer
         .render_scene(&scene, [400, 200], [1.; 4], false)
         .unwrap();
     source.update(|view| view.0.scale = 1.2);
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     renderer
         .render_scene(&scene, [400, 200], [1.; 4], false)
@@ -413,7 +403,7 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     for ms in [16, 32, 64, 100, 160, 220] {
         clock.set(Duration::from_millis(ms)).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+            .render_frame(&mut scene, &mut text, (400, 200), 1.)
             .unwrap();
         renderer
             .render_scene(&scene, [400, 200], [1.; 4], false)
@@ -432,7 +422,7 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     }
     clock.set(Duration::from_millis(260)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     let animated = renderer
         .render_scene(&scene, [400, 200], [1.; 4], false)
@@ -446,7 +436,7 @@ fn retained_scale_motion_shapes_native_text_once_and_keeps_static_quality() {
     direct.configure_text(&mut text, 1.).unwrap();
     let mut scene = Scene::new();
     baseline
-        .render_retained_frame(&mut scene, &mut text, (400, 200), 1.)
+        .render_frame(&mut scene, &mut text, (400, 200), 1.)
         .unwrap();
     let expected = direct
         .render_scene(&scene, [400, 200], [1.; 4], false)
@@ -469,7 +459,7 @@ fn liquid_controls_present_while_the_lenses_are_deforming() {
     impl plico_desktop::HostView for Controls {
         fn show(&mut self, cx: &mut UiContext) {
             liquid::action_button(cx, "Deploy", self.action);
-            liquid::range_slider(cx, "Brightness", &mut self.level, 0.0..=100., 1., 200.);
+            liquid::glass_slider(cx, "Brightness", &mut self.level, 0.0..=100., 1., 200.);
         }
     }
     let clock = VirtualClock::default();
@@ -497,7 +487,7 @@ fn liquid_controls_present_while_the_lenses_are_deforming() {
         for delta in [0, 12, 24, 48, 300] {
             clock.advance(Duration::from_millis(delta)).unwrap();
             source
-                .try_render_retained_frame(&mut scene, &mut text, (320, 160), 1.)
+                .render_frame(&mut scene, &mut text, (320, 160), 1.)
                 .unwrap();
             renderer
                 .render_scene(&scene, [320, 160], [1.; 4], true)

@@ -15,135 +15,8 @@
 //! }
 //! Engine::default().frame_declarations(settings).unwrap();
 //! ```
-use crate::{InnerResponse, Motion, Response, SvgAsset, UiContext, Widget};
+use crate::{SvgAsset, UiContext};
 use std::borrow::Cow;
-
-#[derive(Default, Clone, Copy)]
-enum Variant {
-    #[default]
-    Default,
-    Primary,
-    Ghost,
-}
-/// A standalone widget value. Constructing it does not borrow Ui or retain callbacks.
-pub struct Button<'a> {
-    label: Cow<'a, str>,
-    variant: Variant,
-    disabled: bool,
-    icon: Option<&'a SvgAsset>,
-    width: Option<f32>,
-    motion: Option<Motion>,
-}
-impl<'a> Button<'a> {
-    pub fn new(label: impl Into<Cow<'a, str>>) -> Self {
-        Self {
-            label: label.into(),
-            variant: Variant::Default,
-            disabled: false,
-            icon: None,
-            width: None,
-            motion: None,
-        }
-    }
-    pub fn primary(mut self) -> Self {
-        self.variant = Variant::Primary;
-        self
-    }
-    pub fn ghost(mut self) -> Self {
-        self.variant = Variant::Ghost;
-        self
-    }
-    pub fn disabled(mut self, value: bool) -> Self {
-        self.disabled = value;
-        self
-    }
-    pub fn icon(mut self, icon: &'a SvgAsset) -> Self {
-        self.icon = Some(icon);
-        self
-    }
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = Some(width);
-        self
-    }
-    pub fn motion(mut self, motion: Motion) -> Self {
-        self.motion = Some(motion);
-        self
-    }
-    fn bind<'u, 'e>(&self, ui: &'u mut UiContext<'e>) -> crate::Button<'u, 'e, '_> {
-        let mut button = ui.button(self.label.as_ref()).disabled(self.disabled);
-        match self.variant {
-            Variant::Primary => button = button.primary(),
-            Variant::Ghost => button = button.ghost(),
-            Variant::Default => {}
-        }
-        if let Some(width) = self.width {
-            button = button.width(width);
-        }
-        if let Some(motion) = self.motion {
-            button = button.motion(motion);
-        }
-        button
-    }
-    pub fn children<F, R>(self, content: F) -> ContentButton<'a, F>
-    where
-        F: FnOnce(&mut UiContext<'_>) -> R,
-    {
-        ContentButton {
-            button: self,
-            content,
-        }
-    }
-}
-impl Widget for Button<'_> {
-    type Response = Response;
-    fn show(self, ui: &mut UiContext<'_>) -> Response {
-        let button = self.bind(ui);
-        if let Some(icon) = self.icon {
-            button.icon(icon).text(self.label.as_ref()).response()
-        } else {
-            button.response()
-        }
-    }
-}
-/// Composable default button; the closure is invoked once and dropped during show.
-pub struct ContentButton<'a, F> {
-    button: Button<'a>,
-    content: F,
-}
-impl<F, R> Widget for ContentButton<'_, F>
-where
-    F: FnOnce(&mut UiContext<'_>) -> R,
-{
-    type Response = InnerResponse<R>;
-    fn show(self, ui: &mut UiContext<'_>) -> Self::Response {
-        self.button.bind(ui).children(self.content)
-    }
-}
-
-macro_rules! toggle {
-    ($name:ident, $method:ident) => {
-        pub struct $name<'a> {
-            label: Cow<'a, str>,
-            value: &'a mut bool,
-        }
-        impl<'a> $name<'a> {
-            pub fn new(label: impl Into<Cow<'a, str>>, value: &'a mut bool) -> Self {
-                Self {
-                    label: label.into(),
-                    value,
-                }
-            }
-        }
-        impl Widget for $name<'_> {
-            type Response = bool;
-            fn show(self, ui: &mut UiContext<'_>) -> bool {
-                ui.$method(self.label.as_ref(), self.value)
-            }
-        }
-    };
-}
-toggle!(Checkbox, checkbox);
-toggle!(Switch, switch);
 
 /// Declare a vertical container; consume it with `+ |cx| { ... }` or `.children(...)`.
 pub fn column<'u, 'e>(cx: &'u mut crate::UiContext<'e>) -> crate::Layout<'u, 'e> {
@@ -164,13 +37,9 @@ pub fn text<'u, 'e, 't>(
 ) -> crate::Text<'u, 'e, 't> {
     cx.text(label)
 }
-/// Declare empty text, typically as the baseline for a reactive property binding.
-pub fn text_empty<'u, 'e, 't>(cx: &'u mut crate::UiContext<'e>) -> crate::Text<'u, 'e, 't> {
-    cx.text("")
-}
 /// Declare a themed button, then configure it before reading its response.
 pub fn button<'u, 'e, 't>(cx: &'u mut crate::UiContext<'e>) -> crate::Button<'u, 'e, 't> {
-    cx.button("").composable()
+    cx.themed_button()
 }
 /// Declare button behavior without appearance; the label names it for accessibility.
 pub fn button_base<'u, 'e, 't>(
@@ -315,6 +184,18 @@ pub fn slider<'u, 'e, 't>(
     cx.slider(label, value, range)
 }
 
+/// A two-thumb slider with the active fill between the ends. Each thumb
+/// has its own keyboard focus and accessible numeric value.
+pub fn range_slider<'u, 'e, 't>(
+    cx: &'u mut UiContext<'e>,
+    label: impl Into<Cow<'t, str>>,
+    low: &'t mut f64,
+    high: &'t mut f64,
+    range: std::ops::RangeInclusive<f64>,
+) -> crate::Slider<'u, 'e, 't> {
+    cx.range_slider(label, low, high, range)
+}
+
 /// Declare a trigger and a portable anchored popup.
 pub fn popover<'u, 'e, 's>(
     cx: &'u mut UiContext<'e>,
@@ -326,10 +207,8 @@ pub fn popover<'u, 'e, 's>(
 
 mod popup;
 mod radio;
-mod range;
 pub use popup::{MenuItem, Select, SelectOption, SelectResponse, menu, menu_item, select};
 pub use radio::{radio, radio_group};
-pub use range::range_slider;
 
 mod tooltip;
 pub use tooltip::{Tooltip, tooltip};

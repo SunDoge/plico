@@ -1,4 +1,5 @@
 //! Adversarial inputs for declaration fast paths: changing styles/order/membership.
+use plico::widgets::{row, text};
 use plico::{Color, Engine, UiContext};
 use std::time::Instant;
 fn show(cx: &mut UiContext<'_>, mode: &str, phase: usize) {
@@ -9,12 +10,12 @@ fn show(cx: &mut UiContext<'_>, mode: &str, phase: usize) {
             _ => slot,
         };
         let style = mode == "all_styles" && phase == 1;
-        cx.row()
+        row(cx)
             .key(id)
             .opacity(if style { 0.5 } else { 1. })
             .children(|cx| {
                 for _ in 0..2 {
-                    cx.text("Stable text")
+                    text(cx, "Stable text")
                         .font_size(if style { 18 } else { 14 })
                         .color(if style {
                             Color::Literal(0xff0000)

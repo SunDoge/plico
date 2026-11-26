@@ -221,12 +221,14 @@ fn new_directory(root: &Path) -> io::Result<PathBuf> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default(),
     );
-    let mut builder = fs::DirBuilder::new();
+    let builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    {
+    let builder = {
         use std::os::unix::fs::DirBuilderExt;
+        let mut builder = builder;
         builder.mode(0o700);
-    }
+        builder
+    };
     for index in 0..100 {
         let path = root.join(format!("window-{time}-{}-{index}", std::process::id()));
         match builder.create(&path) {

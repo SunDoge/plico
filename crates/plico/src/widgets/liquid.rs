@@ -1004,7 +1004,7 @@ pub fn glass_switch_with_description(
     toggle(cx, label, Some(description), value, GlassToggle::Switch)
 }
 
-pub fn range_slider(
+pub fn glass_slider(
     cx: &mut UiContext,
     label: &str,
     value: &mut f64,

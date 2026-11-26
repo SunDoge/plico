@@ -160,7 +160,7 @@ fn string_binding_drop_commits_and_disabled_edits_are_discarded() {
     #[component]
     fn form(cx: &mut UiContext, value: &mut String, disabled: bool) {
         column(cx).disabled(disabled).children(|cx| {
-            cx.text_input_string("Path", value);
+            text_input_string(cx, "Path", value);
         });
     }
     engine

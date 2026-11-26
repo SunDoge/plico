@@ -85,7 +85,7 @@ fn measure(rows: usize, present: bool, list: List) {
     let mut scene = Scene::new();
     let mut text = TextContext::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (320, 240), 1.)
+        .render_frame(&mut scene, &mut text, (320, 240), 1.)
         .unwrap();
     let steps = if present { 64 } else { 4096 };
     let mut samples = Vec::new();
@@ -108,7 +108,7 @@ fn measure(rows: usize, present: bool, list: List) {
             );
             if present {
                 source
-                    .render_retained_frame(&mut scene, &mut text, (320, 240), 1.)
+                    .render_frame(&mut scene, &mut text, (320, 240), 1.)
                     .unwrap();
                 peak_placed = peak_placed.max(source.placed_nodes().len());
             }

@@ -289,7 +289,7 @@ impl Renderer {
             frame_images: Vec::new(),
             frame_image_slots: Default::default(),
             batch_stats: Default::default(),
-            frame_budget: FrameBudget::default(),
+            frame_budget: plico_renderer::FrameBudgetSample::default(),
             gpu_timer,
             pending_gpu_slot: None,
             frame_prefix_commands: Vec::new(),

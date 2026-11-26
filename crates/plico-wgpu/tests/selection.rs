@@ -31,7 +31,7 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
         let mut scene = Scene::new();
         let size = [(400. * scale) as u32, (180. * scale) as u32];
         source
-            .render_retained_frame(&mut scene, &mut text, (size[0], size[1]), scale)
+            .render_frame(&mut scene, &mut text, (size[0], size[1]), scale)
             .unwrap();
         let before = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         let nodes = source.build_frame(&mut text, size[0], size[1]);
@@ -81,7 +81,7 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             "scale={scale}"
         );
         source
-            .render_retained_frame(&mut scene, &mut text, (size[0], size[1]), scale)
+            .render_frame(&mut scene, &mut text, (size[0], size[1]), scale)
             .unwrap();
         let after = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         let backend = source.frame_diagnostics().backend;
@@ -125,7 +125,7 @@ fn native_word_selection_highlights_and_copies_at_fractional_dpi() {
             synthetic: false,
         }));
         source
-            .render_retained_frame(&mut scene, &mut text, (size[0], size[1]), scale)
+            .render_frame(&mut scene, &mut text, (size[0], size[1]), scale)
             .unwrap();
         let cleared = renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         assert!(

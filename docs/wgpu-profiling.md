@@ -30,7 +30,7 @@ span 相加。改用 `RUST_LOG=plico::perf=trace` 可查看资源与 damage 明�
 trace 时，不提前遍历缓存计算这些统计。Windows 资源记录还包含字体原生复制
 字节数、覆盖率栅格化与 CPU 着色次数。
 
-共享 JSON 的 `summaries` 给出 `frame/retained.cpu`、`present.cpu` 和 `redraw.cpu`。
+当前 `summaries` 给出 `frame/build.cpu`、`present.cpu` 和 `redraw.cpu`。下表沿用当时采样的 `retained.cpu` 名称。
 前者覆盖共享构建、布局和 Scene 生成，不能解释成仅执行 `show`。`present.cpu`
 还包括窗口获取/呈现与可能的驱动等待；它不是纯编码时间。百分位使用最近
 128 个样本，`count`、`totalUs` 则累计整个录制过程。
