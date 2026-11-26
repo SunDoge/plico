@@ -12,6 +12,8 @@ API with retained nodes, layout, text, and rendering caches underneath.
 
 **Alpha / 0.1.0 in development.** APIs are evolving; crates are not yet published.
 
+https://github.com/user-attachments/assets/74b56949-fdf5-4a19-be5b-f88e9007ff3f
+
 ## Why Plico?
 
 - **Work with the borrow checker.** UI declarations and their children closures
