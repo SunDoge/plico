@@ -623,6 +623,85 @@ fn builtin_liquid_glass_renders_a_local_pane() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
+    struct Pane {
+        glass: bool,
+    }
+
+    impl plico::View for Pane {
+        fn theme(&self) -> Theme {
+            Theme {
+                surface: 0,
+                ..Theme::dark()
+            }
+        }
+
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            let capsule = column(cx)
+                .absolute(16., 12.2)
+                .width(120.)
+                .height(37.)
+                .radius(18.5)
+                .corner_smoothing(0.);
+            if self.glass {
+                capsule
+                    .material(plico::LiquidGlass {
+                        tint: Color::Literal(0xffffff),
+                        tint_opacity: 1.,
+                        refraction: 0.,
+                        rim: 0.,
+                        ..plico::LiquidGlass::default()
+                    })
+                    .end();
+            } else {
+                capsule.background(Color::Literal(0xffffff)).end();
+            }
+        }
+    }
+
+    let scale = 1.25;
+    let viewport = (160, 64);
+    let output = [200, 80];
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut draw = |glass| {
+        let mut source = Source::new(NativeView(Pane { glass }));
+        let mut scene = Scene::new();
+        source
+            .render_retained_frame(&mut scene, &mut text, viewport, scale)
+            .unwrap();
+        assert_eq!(source.shader_diagnostics().count(), 0);
+        renderer
+            .render_scene(&scene, output, [0., 0., 0., 1.], false)
+            .unwrap()
+    };
+    let glass = draw(true);
+    let solid = draw(false);
+    let red = |pixels: &[u8], x: usize, y: usize| f32::from(pixels[(y * 200 + x) * 4]);
+    let glass_center = red(&glass, 95, 37);
+    let solid_center = red(&solid, 95, 37);
+    assert!(glass_center > 230. && solid_center > 230.);
+
+    // Both the flat section and the curved shoulder include partially covered pixels.
+    let mut antialiased_pixels = 0;
+    for y in [15, 16] {
+        for x in 32..64 {
+            let expected = red(&solid, x, y) / solid_center;
+            if (0. ..1.).contains(&expected) && expected > 0. {
+                antialiased_pixels += 1;
+            }
+            let actual = red(&glass, x, y) / glass_center;
+            assert!(
+                (expected - actual).abs() <= 0.055,
+                "coverage at ({x}, {y}): solid {expected}, glass {actual}"
+            );
+        }
+    }
+    assert!(antialiased_pixels >= 8);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn builtin_liquid_glass_uses_reusable_mygo_fixed_gaussian_path() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill};

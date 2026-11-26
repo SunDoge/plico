@@ -285,6 +285,9 @@ impl LiquidGlass {
                 18.
             } else if feedback.is_some() {
                 2.
+            } else if radius > 0. && face.is_none() {
+                // Like MyGO's effect quad, leave room for edge coverage outside the pane.
+                1.
             } else {
                 0.
             };

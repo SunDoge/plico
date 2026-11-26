@@ -37,9 +37,18 @@ fn glass_normal(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> vec2<f32> {
     }
     return vec2<f32>(0.0, sign(p.y));
 }
+// At a fully rounded radius, MyGO's rounded-box distance reduces to the
+// distance from one segment. Use its gradient for both the sides and caps.
+fn glass_capsule_delta(p: vec2f, half_size: vec2f, radius: f32) -> vec2f {
+    let segment = max(half_size - vec2f(radius), vec2f(0.));
+    return p - clamp(p, -segment, segment);
+}
 // Same implicit continuous-corner field as plico-renderer/corner_shape.rs.
 // Uniform radii: the nearest corner is the maximal corner field.
 fn glass_contour_field(p: vec2<f32>, size: vec2<f32>, radius: f32, smoothing: f32) -> f32 {
+    if radius > 0. && radius >= min(size.x, size.y) * 0.5 {
+        return length(glass_capsule_delta(p, size * 0.5, radius)) - radius;
+    }
     let u = size * 0.5 - abs(p);
     let edge = -min(u.x, u.y);
     if radius <= 0.0 {
@@ -49,8 +58,7 @@ fn glass_contour_field(p: vec2<f32>, size: vec2<f32>, radius: f32, smoothing: f3
     if u.x < radius && u.y < radius {
         circular = max(circular, length(max(vec2<f32>(radius) - u, vec2<f32>(0.0))) - radius);
     }
-    if smoothing <= 0.0 || radius >= min(size.x, size.y) * 0.5 {
-        // Fully rounded controls remain true circles/capsules.
+    if smoothing <= 0.0 {
         return circular;
     }
     let extent = 1.528665 * radius;
@@ -230,15 +238,22 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
         return glass_backdrop(uv);
     }
     let face_radius = select(plico.values[0].x, plico.values[9].x, morph && plico.values[9].x > 0.);
-    let radius = min(face_radius + grow.y, min(pane_size.x, pane_size.y) * 0.5);
+    let half_short = min(pane_size.x, pane_size.y) * 0.5;
+    let radius = min(face_radius + grow.y, half_short);
+    let capsule = radius > 0. && radius >= half_short;
     let smoothing = clamp(plico.values[3].x, 0.0, 1.0);
     var distance = glass_contour_field(p, pane_size, radius, smoothing);
-    var normal = glass_normal(p, pane_size * 0.5, radius);
+    var normal: vec2f;
+    if capsule {
+        let delta = glass_capsule_delta(p, pane_size * 0.5, radius);
+        normal = delta / max(length(delta), 0.00001);
+    } else {
+        normal = glass_normal(p, pane_size * 0.5, radius);
+    }
     // Only curved continuous corners need the field gradient. Flat edges retain
     // the inexpensive analytic path and the lens never affects the center.
     let nearest = pane_size * 0.5 - abs(p);
-    if smoothing > 0.0 && radius < min(pane_size.x, pane_size.y) * 0.5 && nearest.x < radius * 1.528665
-        && nearest.y < radius * 1.528665 {
+    if !capsule && smoothing > 0.0 && nearest.x < radius * 1.528665 && nearest.y < radius * 1.528665 {
         let epsilon = 0.25 / scale;
         let dx =
             (glass_contour_field(p + vec2<f32>(epsilon, 0.0), pane_size, radius, smoothing)
@@ -263,7 +278,13 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
             );
         normal = gradient / max(length(gradient), 0.00001);
     }
-    let coverage = 1.0 - smoothstep(-0.5 / scale, 0.5 / scale, distance);
+    // MyGO uses a linear one-device-pixel coverage ramp for circular edges.
+    // A cubic ramp flattens the first few samples where a capsule leaves a side.
+    let coverage = select(
+            1.0 - smoothstep(-0.5 / scale, 0.5 / scale, distance),
+            clamp(0.5 - distance * scale, 0.0, 1.0),
+            capsule && plico.values[6].x <= 0.5,
+        );
     let depth = max(-distance, 0.0);
     let material = plico.values[3].y;
     let clarity = clamp(plico.values[3].z, 0.0, 1.0);

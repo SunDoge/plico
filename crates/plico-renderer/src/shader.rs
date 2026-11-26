@@ -671,6 +671,12 @@ impl ShaderEffect {
         }
         uniforms[0] = f32::from(self.physical_size[0]);
         uniforms[1] = f32::from(self.physical_size[1]);
+        if self.source.builtin == Some(plico::ShaderBuiltin::LiquidGlass) {
+            // Backdrop UVs span the actual pane. A rounded-up texture extent would
+            // turn an exact half-height radius into a smaller, non-capsule corner.
+            uniforms[0] = self.logical_size[0] * self.device_scale;
+            uniforms[1] = self.logical_size[1] * self.device_scale;
+        }
         uniforms[2] = self.time;
         uniforms
     }
