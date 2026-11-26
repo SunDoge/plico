@@ -1,0 +1,26 @@
+[package]
+name = "framebank"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[features]
+recording = ["plico-desktop/recording"]
+video = ["dep:plico-video", "plico-video/mpv"]
+
+[dependencies]
+directories.workspace = true
+image = { workspace = true, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+open.workspace = true
+plico.workspace = true
+plico-dev.workspace = true
+plico-runtime.workspace = true
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false, features = ["wgpu"] }
+plico-video = { path = "../../crates/plico-video", optional = true }
+rfd.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+snafu.workspace = true
+tempfile.workspace = true
+usage-rs.workspace = true

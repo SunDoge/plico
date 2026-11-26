@@ -1,0 +1,17 @@
+{
+  "viewport": { "width": 1280, "height": 850, "scale": 1 },
+  "steps": [
+    { "after_ms": 350, "command": { "action": "pointer_move", "x": 150, "y": 220 } },
+    { "after_ms": 650, "command": { "action": "click", "role": "button", "label": "Quiet elevations" } },
+    { "after_ms": 950, "command": { "action": "click", "role": "button", "label": "Toggle immersive zoom" } },
+    { "after_ms": 950, "command": { "action": "click", "role": "button", "label": "Similar" } },
+    { "after_ms": 900, "command": { "action": "click", "role": "button", "label": "Fit" } },
+    { "after_ms": 720, "command": { "action": "click", "role": "button", "label": "Info" } },
+    { "after_ms": 500, "command": { "action": "click", "role": "button", "label": "Tidal study" } },
+    { "after_ms": 650, "command": { "action": "click", "role": "button", "label": "Previous asset" } },
+    { "after_ms": 650, "command": { "action": "click", "role": "button", "label": "Next asset" } },
+    { "after_ms": 650, "command": { "action": "click", "role": "button", "label": "Previous asset" } },
+    { "after_ms": 550, "command": { "action": "click", "role": "button", "label": "Back to library" } }
+  ],
+  "time_ms": 550
+}

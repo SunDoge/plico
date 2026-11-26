@@ -1,0 +1,8 @@
+{
+  "viewport": { "width": 1280, "height": 850, "scale": 1 },
+  "state": { "selected": 1 },
+  "steps": [
+    { "after_ms": 20, "command": { "action": "click", "role": "button", "label": "Toggle immersive zoom" } }
+  ],
+  "time_ms": 350
+}
