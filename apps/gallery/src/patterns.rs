@@ -91,20 +91,20 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
     toolbar(ui).wrap(true) + |ui| {
         if button(ui).text("Toast").primary().clicked() {
             state.toast_count += 1;
-            state.toasts.toast(Toast::message(format!("Saved {} times", state.toast_count)));
+            state.toasts.add(Toast::message(format!("Saved {} times", state.toast_count)));
         }
         if button(ui).text("Action toast").ghost().clicked() {
-            state.toasts.toast(Toast::message("Background task completed").with_action("Dismiss", || {}));
+            state.toasts.add(Toast::message("Background task completed").with_action("Dismiss", || {}));
         }
         if button(ui).text("Failure").ghost().clicked() {
-            state.toasts.toast(Toast {
+            state.toasts.add(Toast {
                 kind: ToastKind::Error,
                 description: Some("The disk filled up mid-write.".into()),
                 ..Toast::message("Save failed")
             });
         }
         if button(ui).text("Sticky").ghost().clicked() {
-            state.toasts.toast(Toast::message("Still here until closed").sticky());
+            state.toasts.add(Toast::message("Still here until closed").sticky());
         }
         toolbar_spacer(ui);
         text!(ui, "{} in flight", state.toasts.len()).color(Color::Muted);
@@ -147,7 +147,7 @@ pub fn page(ui: &mut UiContext, state: &mut Patterns, router: &mut plico::Router
                 critical: Some(95.),
             });
             let _ = slider(ui, "Disk used", &mut state.disk, 0.0..=100.0).step(1.);
-            if range_slider(ui, "Price", &mut state.price_low, &mut state.price_high, 0.0..=1000.0) {
+            if range_slider(ui, "Price", &mut state.price_low, &mut state.price_high, 0.0..=1000.0).changed() {
                 ui.request_rebuild();
             }
             text!(ui, "${:.0} – ${:.0}", state.price_low, state.price_high).color(Color::Muted);

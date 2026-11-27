@@ -1,0 +1,7 @@
+{
+  "viewport": { "width": 1280, "height": 850, "scale": 1 },
+  "steps": [
+    { "after_ms": 0, "command": { "action": "pointer_move", "x": 151, "y": 220 } }
+  ],
+  "time_ms": 200
+}

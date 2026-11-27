@@ -57,6 +57,7 @@
 | [动画、异步与开发生命周期](lifecycle.md) | scalar motion、宿主任务边界与静态编译预览 |
 | [自动身份](identity.md) | `#[component]` 的隐式 ID、列表 key 与恢复边界 |
 | [逻辑时钟](clock.md) | 外部注入、virtual clock、帧时间与动画请求 |
+| [API 审查](api-audit.md) | 调用入口、共享实现与迁移记录 |
 | [Context 与独立组件](components.md) | Context 首参、普通函数组件、行为基础与主题继承 |
 | [节点编辑器](node-editor.md) | 可序列化图模型、节点拖动、端口连接、批量 Bézier 边与当前交互边界 |
 | [MyGO 组件移植覆盖](mygo-ports.md) | 已移植控件、既有子系统覆盖与受核心能力限制的暂缓项 |
@@ -141,6 +142,7 @@
 
 [wgpu 窗口 CPU 采样](wgpu-profiling.md)：阶段 span、退出导出、真实设置页采样及解释边界。
 
+- [Plico 默认桌面风格](default-desktop-style.md) — 默认与紧凑密度、基础控件尺寸和 Gallery 对照页。
 - [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.
 
 - [Continuous corners](corner-smoothing.md): shared eased fill/border/clip geometry and renderer cost boundaries.

@@ -60,7 +60,7 @@ impl Adapter {
         }
         self.presentation_dirty = false;
     }
-    fn update_presentation_node(&mut self, index: usize) {
+    pub(super) fn update_presentation_node(&mut self, index: usize) {
         let (parent, opacity) = self.placed[index]
             .parent_node_id
             .and_then(|id| self.placed_indices.get(&id))
@@ -94,6 +94,21 @@ impl Adapter {
             .transform_rect_bbox(KurboRect::new(r[0], r[1], r[2], r[3]));
         Some([r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32])
     }
+    pub(super) fn shared_flight(
+        &self,
+        id: NodeId,
+    ) -> Option<&plico_renderer::scene::PresentedFlight> {
+        if self.shared_matches.flights.is_empty() {
+            return None;
+        }
+        let index = *self.placed_indices.get(&id)?;
+        self.shared_matches
+            .flights
+            .iter()
+            .rev()
+            .find(|flight| (flight.start..flight.end).contains(&index))
+    }
+
     pub(super) fn visible_bounds(&self, id: NodeId) -> Option<[f32; 4]> {
         if self
             .placed
@@ -104,6 +119,7 @@ impl Adapter {
             return None;
         }
         let mut bounds = self.visual_bounds(id)?;
+        let flight = self.shared_flight(id);
         for node in self.placed_chain(id) {
             if let Some(clip) = node.own_clip {
                 let c = self.visual_rect(node.node_id, clip.map(f64::from))?;
@@ -114,6 +130,18 @@ impl Adapter {
                     bounds[3].min(c[3] as f32),
                 ];
             }
+            if flight.is_some_and(|flight| self.placed[flight.start].node_id == node.node_id) {
+                break;
+            }
+        }
+        if let Some(flight) = flight {
+            let [left, top, right, bottom] = flight.clip;
+            bounds = [
+                bounds[0].max(left),
+                bounds[1].max(top),
+                bounds[2].min(right),
+                bounds[3].min(bottom),
+            ];
         }
         (bounds[0] < bounds[2] && bounds[1] < bounds[3]).then_some(bounds)
     }
@@ -148,11 +176,22 @@ impl Adapter {
         {
             return false;
         }
-        self.placed_chain(id).all(|node| {
-            node.own_clip.is_none_or(|clip| {
-                self.layout_point(node.node_id, x, y)
+        let flight = self.shared_flight(id);
+        if flight.is_some_and(|flight| !inside(flight.clip, KurboPoint::new(x, y))) {
+            return false;
+        }
+        for ancestor in self.placed_chain(id) {
+            if ancestor.own_clip.is_some_and(|clip| {
+                !self
+                    .layout_point(ancestor.node_id, x, y)
                     .is_some_and(|p| inside(clip, p))
-            })
-        })
+            }) {
+                return false;
+            }
+            if flight.is_some_and(|flight| self.placed[flight.start].node_id == ancestor.node_id) {
+                break;
+            }
+        }
+        true
     }
 }

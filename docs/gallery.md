@@ -9,7 +9,7 @@ Gallery 持有可序列化的 Page enum，通过 match 声明页面。切页卸�
 
 应用组件签名使用 `&mut UiContext`，通过 column(cx)、button(cx).text(...) 等独立函数构建。NavItem、项目卡片是普通函数，panel 返回应用自己的可配置容器；均不需要给 UiContext 增加方法或实现 Widget。内部仍直接借用 Engine，没有内部可变的共享 context。
 
-main.rs 只构造 App 并调用 run_with_options，不解析参数。examples/capture.rs 和 examples/probe.rs 是开发验证工具，由 plico-cli 的 render/probe 调用。
+普通启动由 `main.rs` 构造帧源并调用 `run_source`。这个入口也解析预览截图和录制参数。开发用的 `examples/capture.rs` 和 `examples/probe.rs` 由 Plico CLI 的 render/probe 命令调用。
 
 ## 基础 motion
 
@@ -46,7 +46,7 @@ Controls 页的 Preferences 并排展示正常和禁用的 switch/checkbox，复
 
 图标来自完整固定版本的 Lucide SVG 集合；scripts/icons.ts（bun）获取上游资产并生成 plico::icons 常量，SVG 不提交进仓库。导航、项目卡片、保存/重置/归档/恢复与计数按钮使用真实 SVG。详见 [SVG 图标](icons.md)，真实截图在 reports/icons。
 
-Lists 页提供 10,000 条固定行高数据，通过 virtual_list 仅声明可见行和 overscan；见 [虚拟列表](virtual-list.md)。
+Lists 页提供 10,000 条固定行高数据，通过 `virtual_list` 只声明可见行和 overscan。点击「交换第 2、3 行」可以观察行位移动画。见 [虚拟列表](virtual-list.md)。
 
 ## 2048
 

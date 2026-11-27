@@ -24,6 +24,10 @@ mod macos_frame_pass;
 mod macos_transaction;
 mod mipmap;
 mod renderer;
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+mod retained_readback;
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+pub use retained_readback::RetainedFrameReadback;
 mod shader;
 #[cfg(any(
     all(target_os = "macos", feature = "surface"),
@@ -74,7 +78,7 @@ pub mod text;
 mod texture;
 pub use external::ExternalTexture;
 pub use renderer::LayerPoolStats;
-pub use renderer::{FrameBatchStats, FrameBudget, Renderer};
+pub use renderer::{FrameBatchStats, Renderer};
 
 /// Native display connection kept alive by a window host.
 ///
@@ -263,3 +267,12 @@ pub(crate) fn instance_descriptor() -> wgpu::InstanceDescriptor {
     descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
     descriptor.with_env()
 }
+
+#[cfg(any(
+    test,
+    all(
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
+        feature = "system-text"
+    )
+))]
+mod text_phase;

@@ -1,3 +1,4 @@
+use plico::widgets::button;
 use plico::{Theme, UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
@@ -26,7 +27,7 @@ impl HostView for Demo {
                 1.
             })
             .transition(200);
-        if ui.button("Increment").key("increment").clicked() {
+        if button(ui).text("Increment").key("increment").clicked() {
             self.count += 1;
         }
         if self.logical_animation && ui.now() < Duration::from_millis(100) {
@@ -51,7 +52,7 @@ impl HostView for Demo {
 }
 fn sample(source: &mut Source<Demo>, text: &mut TextContext, size: (u32, u32), scale: f64) {
     source
-        .render_retained_frame(&mut Scene::new(), text, size, scale)
+        .render_frame(&mut Scene::new(), text, size, scale)
         .unwrap();
 }
 #[test]
@@ -170,14 +171,14 @@ fn failed_declarations_retry_and_can_recover_without_reusing_a_partial_frame() {
     for _ in 0..2 {
         assert!(
             source
-                .try_render_retained_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
+                .render_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
                 .is_err()
         );
     }
     assert_eq!(source.view().calls, 2);
     source.update(|view| view.invalid = false);
     source
-        .try_render_retained_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
+        .render_frame(&mut Scene::new(), &mut text, (400, 300), 1.)
         .unwrap();
     assert_eq!(source.view().calls, 3);
 }

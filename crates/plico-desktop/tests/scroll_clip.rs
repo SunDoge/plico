@@ -42,7 +42,7 @@ fn scrolling_glass_and_shadows_cannot_escape_the_scrollport_at_multiple_scales()
         let size = [(200. * scale) as u32, (160. * scale) as u32];
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (200, 160), scale)
+            .render_frame(&mut scene, &mut text, (200, 160), scale)
             .unwrap();
         let baseline = renderer.render_scene(&scene, size, [0.; 4], false).unwrap();
         source.update(|view| view.glass = true);
@@ -57,7 +57,7 @@ fn scrolling_glass_and_shadows_cannot_escape_the_scrollport_at_multiple_scales()
                 modifiers: Modifiers::empty(),
             }));
             source
-                .render_retained_frame(&mut scene, &mut text, (200, 160), scale)
+                .render_frame(&mut scene, &mut text, (200, 160), scale)
                 .unwrap();
             let actual = renderer.render_scene(&scene, size, [0.; 4], false).unwrap();
             for y in 0..size[1] {

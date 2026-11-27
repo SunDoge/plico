@@ -3516,6 +3516,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "framebank"
+version = "0.4.6"
+dependencies = [
+ "directories",
+ "image",
+ "open",
+ "plico",
+ "plico-desktop",
+ "plico-dev",
+ "plico-runtime",
+ "plico-video",
+ "rfd",
+ "serde",
+ "serde_json",
+ "snafu",
+ "tempfile",
+ "usage-rs",
+]
+
+[[package]]
 name = "freetype-rs"
 version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3681,6 +3701,7 @@ dependencies = [
  "snafu",
  "ureq",
  "usage-rs",
+ "wgpu",
 ]
 
 [[package]]
@@ -8700,6 +8721,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
+name = "signal-desk"
+version = "0.4.6"
+dependencies = [
+ "plico",
+ "plico-desktop",
+ "plico-dev",
+ "snafu",
+ "usage-rs",
+]
+
+[[package]]
 name = "signal-hook"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8967,6 +8999,13 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
+name = "stillroom"
+version = "0.4.6"
+dependencies = [
+ "framebank",
+]
 
 [[package]]
 name = "streaming-iterator"
@@ -10729,9 +10768,9 @@ dependencies = [
 
 [[package]]
 name = "wgpu"
-version = "30.0.1"
+version = "30.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "527ccdf43dd5b2e8676eed9984ce00e2bbb0a1b85b70c1969dcb6cd2eb55ab9e"
+checksum = "146fc3d654250e6207921a66c87534c621bc886c70df83dcf466c1d66813810e"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.2",

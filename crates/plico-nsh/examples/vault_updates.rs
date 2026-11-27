@@ -7,6 +7,7 @@ use nsh_core::{
     },
     geometry::px,
 };
+use plico::widgets::text as ui_text;
 use plico::{Engine, UiContext};
 use plico_nsh::Adapter;
 use std::{cell::RefCell, time::Instant};
@@ -64,7 +65,7 @@ impl<const SIGNALS: bool, const MEMO: bool, const SELECT: bool> Component
                     .frame_declarations(|cx| {
                         let list = |cx: &mut UiContext| {
                             for i in 0..rows {
-                                cx.text(item(i, i == selected)).key(i as u64);
+                                ui_text(cx, item(i, i == selected)).key(i as u64);
                             }
                         };
                         if MEMO {
@@ -72,8 +73,8 @@ impl<const SIGNALS: bool, const MEMO: bool, const SELECT: bool> Component
                         } else {
                             list(cx);
                         }
-                        cx.text(detail(selected));
-                        cx.text(countdown(remaining));
+                        ui_text(cx, detail(selected));
+                        ui_text(cx, countdown(remaining));
                     })
                     .unwrap();
                 adapter.project(&engine).unwrap()

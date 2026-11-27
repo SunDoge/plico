@@ -182,13 +182,13 @@ impl ValueMotionStore {
                 rest_delta,
                 rest_speed,
             } => {
-                let options = SpringOptions {
+                let options = SpringPhysics {
                     mass,
                     stiffness,
                     damping,
-                    epsilon: rest_delta,
+                    precision: rest_delta,
                 };
-                let (displacement, velocity) = solve_spring(-1.0, velocity, elapsed, options);
+                let (displacement, velocity) = options.sample(-1.0, velocity, elapsed);
                 let done = displacement.abs() <= rest_delta && velocity.abs() <= rest_speed;
                 ValueMotionSample {
                     value: if done { 1.0 } else { 1.0 + displacement },
@@ -242,43 +242,15 @@ new_key_type! {
     pub struct MotionId;
 }
 
-/// The timing curve now lives in `plico::Easing`, shared with the UI
-/// declaration layer's `loop_progress`; this crate re-exports it.
-pub use plico::Easing;
+pub use plico::{Easing, SpringPhysics};
 
-/// Physical parameters for an analytic damped spring.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpringOptions {
-    /// Moving mass. Must be positive and finite.
-    pub mass: f64,
-    /// Restoring force coefficient. Must be positive and finite.
-    pub stiffness: f64,
-    /// Damping force coefficient. Must be non-negative and finite.
-    pub damping: f64,
-    /// Maximum displacement from the target before settling.
-    pub epsilon: f64,
-}
-
-impl Default for SpringOptions {
-    fn default() -> Self {
-        Self {
-            mass: 1.0,
-            stiffness: 170.0,
-            damping: 26.0,
-            epsilon: 0.001,
-        }
-    }
-}
-
-impl SpringOptions {
-    fn sanitized(self) -> Self {
-        let defaults = Self::default();
-        Self {
-            mass: positive_or(self.mass, defaults.mass),
-            stiffness: positive_or(self.stiffness, defaults.stiffness),
-            damping: non_negative_or(self.damping, defaults.damping),
-            epsilon: positive_or(self.epsilon, defaults.epsilon),
-        }
+fn sanitize_spring(physics: SpringPhysics) -> SpringPhysics {
+    let defaults = SpringPhysics::default();
+    SpringPhysics {
+        mass: positive_or(physics.mass, defaults.mass),
+        stiffness: positive_or(physics.stiffness, defaults.stiffness),
+        damping: non_negative_or(physics.damping, defaults.damping),
+        precision: positive_or(physics.precision, defaults.precision),
     }
 }
 
@@ -354,16 +326,16 @@ struct Spring<const N: usize> {
     value: [f64; N],
     target: [f64; N],
     velocity: [f64; N],
-    options: SpringOptions,
+    options: SpringPhysics,
 }
 
 impl<const N: usize> Spring<N> {
-    fn new(value: [f64; N], target: [f64; N], options: SpringOptions) -> Self {
+    fn new(value: [f64; N], target: [f64; N], options: SpringPhysics) -> Self {
         Self {
             value,
             target,
             velocity: [0.0; N],
-            options: options.sanitized(),
+            options: sanitize_spring(options),
         }
     }
 
@@ -375,7 +347,8 @@ impl<const N: usize> Spring<N> {
         for channel in 0..N {
             let displacement = self.value[channel] - self.target[channel];
             let (displacement, velocity) =
-                solve_spring(displacement, self.velocity[channel], seconds, self.options);
+                self.options
+                    .sample(displacement, self.velocity[channel], seconds);
             self.value[channel] = self.target[channel] + displacement;
             self.velocity[channel] = velocity;
         }
@@ -389,54 +362,13 @@ impl<const N: usize> Spring<N> {
     }
 
     fn is_settled(&self) -> bool {
-        let frequency = (self.options.stiffness / self.options.mass).sqrt();
-        let velocity_epsilon = self.options.epsilon * frequency;
+        let physics = self.options;
         (0..N).all(|channel| {
-            (self.value[channel] - self.target[channel]).abs() <= self.options.epsilon
-                && self.velocity[channel].abs() <= velocity_epsilon
+            physics.at_rest(
+                self.value[channel] - self.target[channel],
+                self.velocity[channel],
+            )
         })
-    }
-}
-
-/// Solve one damped oscillator channel exactly over `seconds`.
-fn solve_spring(
-    displacement: f64,
-    velocity: f64,
-    seconds: f64,
-    options: SpringOptions,
-) -> (f64, f64) {
-    let frequency = (options.stiffness / options.mass).sqrt();
-    let damping_ratio = options.damping / (2.0 * (options.stiffness * options.mass).sqrt());
-    const CRITICAL_TOLERANCE: f64 = 1e-7;
-
-    if damping_ratio < 1.0 - CRITICAL_TOLERANCE {
-        let decay = damping_ratio * frequency;
-        let damped = frequency * (1.0 - damping_ratio * damping_ratio).sqrt();
-        let a = displacement;
-        let b = (velocity + decay * displacement) / damped;
-        let sin = (damped * seconds).sin();
-        let cos = (damped * seconds).cos();
-        let envelope = (-decay * seconds).exp();
-        let position = envelope * (a * cos + b * sin);
-        let velocity =
-            envelope * ((-a * damped * sin + b * damped * cos) - decay * (a * cos + b * sin));
-        (position, velocity)
-    } else if damping_ratio <= 1.0 + CRITICAL_TOLERANCE {
-        let b = velocity + frequency * displacement;
-        let envelope = (-frequency * seconds).exp();
-        (
-            envelope * (displacement + b * seconds),
-            envelope * (velocity - frequency * b * seconds),
-        )
-    } else {
-        let root = (damping_ratio * damping_ratio - 1.0).sqrt();
-        let slow = -frequency * (damping_ratio - root);
-        let fast = -frequency * (damping_ratio + root);
-        let slow_weight = (velocity - fast * displacement) / (slow - fast);
-        let fast_weight = displacement - slow_weight;
-        let slow_term = slow_weight * (slow * seconds).exp();
-        let fast_term = fast_weight * (fast * seconds).exp();
-        (slow_term + fast_term, slow * slow_term + fast * fast_term)
     }
 }
 
@@ -500,7 +432,7 @@ impl<const N: usize> MotionArena<N> {
         &mut self,
         value: [f64; N],
         target: [f64; N],
-        options: SpringOptions,
+        options: SpringPhysics,
     ) -> MotionId {
         let motion = Spring::new(value, target, options);
         let active = value != target;
@@ -540,14 +472,14 @@ impl<const N: usize> MotionArena<N> {
         &mut self,
         id: MotionId,
         target: [f64; N],
-        options: SpringOptions,
+        options: SpringPhysics,
     ) -> bool {
         let active = {
             let Some(Motion::Spring(motion)) = self.motions.get_mut(id) else {
                 return false;
             };
             motion.target = target;
-            motion.options = options.sanitized();
+            motion.options = sanitize_spring(options);
             !motion.is_settled()
         };
         self.set_active(id, active);
@@ -662,7 +594,7 @@ enum Flight {
         from: f64,
         velocity: f64,
         start: Duration,
-        options: SpringOptions,
+        options: SpringPhysics,
         /// When the oscillator first satisfies the settle criterion; the
         /// frame loop can go idle instead of sampling forever.
         settle: Duration,
@@ -716,8 +648,7 @@ impl Animated {
                     return self.target;
                 }
                 let seconds = now.saturating_sub(start).as_secs_f64();
-                let (displacement, _) =
-                    solve_spring(from - self.target, velocity, seconds, options);
+                let (displacement, _) = options.sample(from - self.target, velocity, seconds);
                 self.target + displacement
             }
         }
@@ -755,7 +686,7 @@ impl Animated {
                     return 0.;
                 }
                 let seconds = now.saturating_sub(start).as_secs_f64();
-                solve_spring(from - self.target, velocity, seconds, options).1
+                options.sample(from - self.target, velocity, seconds).1
             }
         }
     }
@@ -790,7 +721,7 @@ impl Animated {
     /// from the value and velocity visible at `now`. Springs asymptotically
     /// settle; the finite settle deadline keeps frame scheduling bounded.
     /// Reduced motion snaps instead.
-    pub fn retarget_spring(&mut self, now: Duration, target: f64, options: SpringOptions) {
+    pub fn retarget_spring(&mut self, now: Duration, target: f64, options: SpringPhysics) {
         if target == self.target {
             return;
         }
@@ -803,7 +734,7 @@ impl Animated {
         }
         // Sanitize before solving the settle deadline: degenerate parameters
         // must produce the same flight the stored options will integrate.
-        let options = options.sanitized();
+        let options = sanitize_spring(options);
         let settle = spring_settle_deadline(from - target, velocity, options);
         self.flight = Flight::Spring {
             from,
@@ -845,13 +776,11 @@ impl Animated {
 /// settle criterion: probe on an exponentially growing ladder, then binary
 /// refine. Bounded by the cap so a pathological epsilon cannot request
 /// frames forever.
-fn spring_settle_deadline(displacement: f64, velocity: f64, options: SpringOptions) -> Duration {
+fn spring_settle_deadline(displacement: f64, velocity: f64, options: SpringPhysics) -> Duration {
     const CAP: f64 = 10.;
-    let frequency = (options.stiffness / options.mass).sqrt();
-    let velocity_epsilon = options.epsilon * frequency;
     let settled = |seconds: f64| {
-        let (displacement, velocity) = solve_spring(displacement, velocity, seconds, options);
-        displacement.abs() <= options.epsilon && velocity.abs() <= velocity_epsilon
+        let (displacement, velocity) = options.sample(displacement, velocity, seconds);
+        options.at_rest(displacement, velocity)
     };
     if settled(0.) {
         return Duration::ZERO;
@@ -945,7 +874,7 @@ fn default_epsilon() -> f64 {
 }
 
 impl SpringDescriptor {
-    fn options(self) -> SpringOptions {
+    fn options(self) -> SpringPhysics {
         let mass = self.mass.unwrap_or(1.0);
         let response = if self.response.is_finite() && self.response > 0.0 {
             self.response
@@ -959,11 +888,11 @@ impl SpringDescriptor {
         } else {
             2.0 * default_damping_ratio() * (stiffness * mass).sqrt()
         };
-        SpringOptions {
+        SpringPhysics {
             mass,
             stiffness,
             damping,
-            epsilon: self.epsilon,
+            precision: self.epsilon,
         }
     }
 }
@@ -1373,11 +1302,11 @@ mod tests {
     fn animated_spring_overshoots_settles_exactly_and_returns_to_idle() {
         // Clearly underdamped (zeta = 0.4): the flight must overshoot the
         // target before settling on it exactly.
-        let bouncy = SpringOptions {
+        let bouncy = SpringPhysics {
             mass: 1.,
             stiffness: 100.,
             damping: 8.,
-            epsilon: 0.001,
+            precision: 0.001,
         };
         let mut animated = Animated::new(0.);
         animated.retarget_spring(Duration::ZERO, 100., bouncy);
@@ -1399,11 +1328,11 @@ mod tests {
 
     #[test]
     fn animated_spring_retarget_carries_the_visible_velocity() {
-        let bouncy = SpringOptions {
+        let bouncy = SpringPhysics {
             mass: 1.,
             stiffness: 100.,
             damping: 8.,
-            epsilon: 0.001,
+            precision: 0.001,
         };
         let mut carried = Animated::new(0.);
         carried.retarget_spring(Duration::ZERO, 100., bouncy);
@@ -1433,11 +1362,11 @@ mod tests {
 
     #[test]
     fn animated_tween_to_spring_handoff_carries_the_tween_momentum() {
-        let bouncy = SpringOptions {
+        let bouncy = SpringPhysics {
             mass: 1.,
             stiffness: 100.,
             damping: 8.,
-            epsilon: 0.001,
+            precision: 0.001,
         };
         // A linear tween at 1000 units/s hands off to a spring mid-flight:
         // the momentum must be visible as continued upward motion.
@@ -1468,11 +1397,11 @@ mod tests {
 
     #[test]
     fn animated_spring_reduced_motion_and_degenerate_options_stay_bounded() {
-        let bouncy = SpringOptions {
+        let bouncy = SpringPhysics {
             mass: 1.,
             stiffness: 100.,
             damping: 8.,
-            epsilon: 0.001,
+            precision: 0.001,
         };
         // Reduced motion completes springs immediately.
         let mut animated = Animated::new(0.);
@@ -1485,11 +1414,11 @@ mod tests {
         // of panicking or dividing by zero.
         animated.set_reduced(false);
         animated.snap(0.);
-        let degenerate = SpringOptions {
+        let degenerate = SpringPhysics {
             mass: 0.,
             stiffness: f64::NAN,
             damping: -1.,
-            epsilon: 0.001,
+            precision: 0.001,
         };
         animated.retarget_spring(Duration::ZERO, 100., degenerate);
         assert!(animated.active(Duration::ZERO));
@@ -1503,11 +1432,11 @@ mod tests {
 
         // An epsilon too small to ever satisfy settles at the deadline cap:
         // the value is exact there and no frames are requested afterwards.
-        let never = SpringOptions {
+        let never = SpringPhysics {
             mass: 1.,
             stiffness: 100.,
             damping: 8.,
-            epsilon: 1e-20,
+            precision: 1e-20,
         };
         animated.snap(0.);
         animated.retarget_spring(Duration::ZERO, 100., never);
@@ -1566,10 +1495,10 @@ mod tests {
 
     #[test]
     fn spring_is_independent_of_frame_partitioning() {
-        let options = SpringOptions {
+        let options = SpringPhysics {
             stiffness: 210.0,
             damping: 18.0,
-            ..SpringOptions::default()
+            ..SpringPhysics::default()
         };
         let mut one = MotionArena::<1>::default();
         let mut many = MotionArena::<1>::default();
@@ -1589,10 +1518,10 @@ mod tests {
     #[test]
     fn retargeted_spring_preserves_velocity() {
         let mut arena = MotionArena::<1>::default();
-        let id = arena.insert_spring([0.0], [100.0], SpringOptions::default());
+        let id = arena.insert_spring([0.0], [100.0], SpringPhysics::default());
         arena.advance(Duration::from_millis(80));
         let before = arena.value(id).unwrap()[0];
-        assert!(arena.retarget_spring(id, [-20.0], SpringOptions::default()));
+        assert!(arena.retarget_spring(id, [-20.0], SpringPhysics::default()));
         arena.advance(Duration::from_millis(1));
         let after = arena.value(id).unwrap()[0];
         assert!(after > before, "velocity was discarded at retarget");
@@ -1605,10 +1534,10 @@ mod tests {
             let id = arena.insert_spring(
                 [10.0, -5.0],
                 [0.0, 2.0],
-                SpringOptions {
+                SpringPhysics {
                     stiffness: 100.0,
                     damping,
-                    ..SpringOptions::default()
+                    ..SpringPhysics::default()
                 },
             );
             for _ in 0..1_000 {
@@ -1629,11 +1558,11 @@ mod tests {
         let id = arena.insert_spring(
             [0.0],
             [1.0],
-            SpringOptions {
+            SpringPhysics {
                 mass: f64::NAN,
                 stiffness: -1.0,
                 damping: f64::INFINITY,
-                epsilon: 0.0,
+                precision: 0.0,
             },
         );
         arena.advance(Duration::from_millis(16));

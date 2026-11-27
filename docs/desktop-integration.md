@@ -2,7 +2,7 @@
 
 启用 `plico-desktop` 的可选 `desktop-integration` feature，通过
 `plico_desktop::desktop::integration(DesktopOptions)` 得到 `DesktopClient` 和
-`DesktopExtension`，将扩展交给 `run_source_with_extensions`。
+`DesktopExtension`，将扩展填入 `EventLoopOptions::extensions` 并传给 `run_windows`。
 
 完整独立示例：
 

@@ -41,8 +41,7 @@ impl HostView for Demo {
 }
 fn frame<V: HostView>(s: &mut Source<V>, text: &mut TextContext) -> Scene {
     let mut scene = Scene::new();
-    s.render_retained_frame(&mut scene, text, (500, 350), 1.)
-        .unwrap();
+    s.render_frame(&mut scene, text, (500, 350), 1.).unwrap();
     scene
 }
 fn preferences<V: HostView>(s: &mut Source<V>, p: DisplayPreferences) -> bool {

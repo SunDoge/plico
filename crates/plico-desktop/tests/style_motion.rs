@@ -1,8 +1,9 @@
+use plico::widgets::{button, column, text};
 use plico::{Color, UiContext};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, Modifiers, Point, PointerButton, PointerEvent, PointerPhase, SemanticRole,
-    TextContext, UiEvent,
+    TextContext, UiEvent, layout::PlacedNode,
 };
 use std::time::{Duration, Instant};
 #[derive(Default)]
@@ -18,8 +19,8 @@ impl HostView for Demo {
         if !self.mounted {
             return;
         }
-        if ui
-            .button("Animated")
+        if button(ui)
+            .text("Animated")
             .key("box")
             .width(if self.expanded { 300. } else { 100. })
             .height(if self.expanded { 80. } else { 40. })
@@ -47,6 +48,17 @@ fn pointer(phase: PointerPhase, x: f64) -> UiEvent {
         properties: Default::default(),
     })
 }
+fn animated_button(nodes: &[PlacedNode]) -> &PlacedNode {
+    let label = nodes
+        .iter()
+        .find(|n| n.paint.text.as_deref() == Some("Animated"))
+        .unwrap();
+    nodes
+        .iter()
+        .find(|n| Some(n.node_id) == label.parent_node_id)
+        .unwrap()
+}
+
 #[test]
 fn layout_style_and_hits_share_current_animated_geometry() {
     let now = Instant::now();
@@ -68,10 +80,7 @@ fn layout_style_and_hits_share_current_animated_geometry() {
         .unwrap()
         .clone();
     assert!((button.bounds[2] - button.bounds[0] - 200.).abs() < 0.01);
-    let p = nodes
-        .iter()
-        .find(|n| n.paint.text.as_deref() == Some("Animated"))
-        .unwrap();
+    let p = animated_button(&nodes);
     assert!((p.paint.opacity - 0.75).abs() < 0.001);
     assert_eq!(p.rect[3] - p.rect[1], 60.);
     // x=250 is inside the final target, but outside the current animated box.
@@ -109,10 +118,7 @@ fn reduced_motion_snaps_layout_and_paint() {
     assert!(source.has_anim());
     source.set_reduced_motion(true);
     let nodes = source.build_frame_at(&mut tcx, 600, 300, now);
-    let p = nodes
-        .iter()
-        .find(|n| n.paint.text.as_deref() == Some("Animated"))
-        .unwrap();
+    let p = animated_button(&nodes);
     assert_eq!(p.rect[2] - p.rect[0], 300.);
     assert_eq!(p.paint.opacity, 0.5);
     assert!(!source.has_anim());
@@ -127,15 +133,15 @@ fn animated_spacing_reflows_children_and_updates_semantic_bounds() {
     impl HostView for Spacing {
         fn show(&mut self, ui: &mut UiContext<'_>) {
             self.calls += 1;
-            ui.column()
+            column(ui)
                 .key("panel")
                 .width(300.)
                 .padding(if self.expanded { 20 } else { 0 })
                 .gap(if self.expanded { 40 } else { 0 })
                 .transition(200)
                 .children(|ui| {
-                    ui.button("First").key("first");
-                    ui.button("Second").key("second");
+                    button(ui).text("First").key("first");
+                    button(ui).text("Second").key("second");
                 });
         }
     }
@@ -178,17 +184,11 @@ fn input_after_long_idle_starts_a_new_transition_instead_of_finishing_it() {
     s.prepare_for_event_at(&mut tcx, now + Duration::from_secs(60))
         .unwrap();
     let nodes = s.build_frame_at(&mut tcx, 600, 300, now + Duration::from_secs(60));
-    let p = nodes
-        .iter()
-        .find(|n| n.paint.text.as_deref() == Some("Animated"))
-        .unwrap();
+    let p = animated_button(&nodes);
     assert_eq!(p.rect[2] - p.rect[0], 100.);
     assert!(s.has_anim());
     let nodes = s.build_frame_at(&mut tcx, 600, 300, now + Duration::from_millis(60_100));
-    let p = nodes
-        .iter()
-        .find(|n| n.paint.text.as_deref() == Some("Animated"))
-        .unwrap();
+    let p = animated_button(&nodes);
     assert_eq!(p.rect[2] - p.rect[0], 200.);
 }
 
@@ -197,8 +197,8 @@ fn events_automatically_settle_text_declared_before_the_handler() {
     struct Counter(u32);
     impl HostView for Counter {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text(format!("Count: {}", self.0));
-            if ui.button("Increment").clicked() {
+            text(ui, format!("Count: {}", self.0));
+            if button(ui).text("Increment").clicked() {
                 self.0 += 1;
             }
         }

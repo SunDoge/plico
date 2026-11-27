@@ -10,6 +10,7 @@ use plico_runtime::{HostView, Source};
 struct Demo {
     tab: usize,
     radio: usize,
+    segment: usize,
     plain_focused: bool,
 }
 
@@ -23,6 +24,7 @@ impl HostView for Demo {
                 }
             }
         });
+        segmented(cx, &mut self.segment, &["List", "Grid", "Columns"]);
         self.plain_focused = button(cx).text("Plain").response().focused();
     }
 }
@@ -93,6 +95,21 @@ fn response_reports_backend_focus() {
 }
 
 #[test]
+fn segmented_control_selects_with_arrows_and_uses_one_tab_stop() {
+    let mut source = Source::new(Demo::default());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 720, 400);
+    focus(&mut source, "List", SemanticRole::RadioButton, &mut text);
+    source.handle_event(key("ArrowRight"));
+    source.build_frame(&mut text, 720, 400);
+    assert_eq!(source.view().segment, 1);
+    assert!(focused_label(&source, SemanticRole::RadioButton, "Grid"));
+    source.handle_event(key("Tab"));
+    source.build_frame(&mut text, 720, 400);
+    assert!(focused_label(&source, SemanticRole::Button, "Plain"));
+}
+
+#[test]
 fn semantic_click_activates_an_unselected_roving_tab() {
     let mut source = Source::new(Demo::default());
     let mut text = TextContext::new();
@@ -129,7 +146,7 @@ fn accessibility_reveals_an_offscreen_label_through_nested_ports_without_focusin
     let mut text = TextContext::new();
     let mut scene = plico_renderer::Scene::new();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .render_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
     let before = source.semantics();
     let first = before
@@ -143,12 +160,12 @@ fn accessibility_reveals_an_offscreen_label_through_nested_ports_without_focusin
     let target = last.id;
     assert!(source.handle_semantic_action(SemanticAction::Focus { target: first }));
     source
-        .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+        .render_frame(&mut scene, &mut text, (400, 300), 1.)
         .unwrap();
     for _ in 0..2 {
         assert!(source.handle_semantic_action(SemanticAction::ScrollIntoView { target }));
         source
-            .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .render_frame(&mut scene, &mut text, (400, 300), 1.)
             .unwrap();
         let snapshot = source.semantics();
         let last = snapshot
@@ -160,7 +177,7 @@ fn accessibility_reveals_an_offscreen_label_through_nested_ports_without_focusin
     for _ in 0..2 {
         assert!(source.handle_semantic_action(SemanticAction::ScrollIntoView { target: first }));
         source
-            .try_render_retained_frame(&mut scene, &mut text, (400, 300), 1.)
+            .render_frame(&mut scene, &mut text, (400, 300), 1.)
             .unwrap();
         assert_eq!(
             source

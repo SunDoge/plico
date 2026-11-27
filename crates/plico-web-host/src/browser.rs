@@ -92,7 +92,7 @@ impl<V: HostView> WebHost<V> {
             .configure_text(&mut self.text)
             .map_err(|e| error(e.to_string()))?;
         self.source
-            .try_render_retained_frame(&mut self.scene, &mut self.text, (width, height), scale)
+            .render_frame(&mut self.scene, &mut self.text, (width, height), scale)
             .map_err(|e| error(e.to_string()))?;
         let size = [
             (f64::from(width) * scale).ceil() as u32,

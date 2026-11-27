@@ -6,6 +6,8 @@ use plico::{Route, prelude::*};
 #[rustfmt::skip]
 pub fn show(cx: &mut UiContext, app: &mut Gallery) {
     let l = cx.localizer();
+    let current = app.router.current();
+    let mut next = current;
     let collapsed = app.sidebar_collapsed;
     let width = cx.animate("sidebar.width", if collapsed { 64. } else { 224. }, std::time::Duration::from_millis(240));
     // As MyGO's collapsible panels: the content keeps its expanded width and
@@ -40,6 +42,7 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                         "Experiments",
                         &[
                             Page::LiquidGlass,
+                            Page::LiquidGlassShowcase,
                             Page::Effects,
                             Page::Glass,
                             Page::ShaderPlayground,
@@ -84,12 +87,10 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
                             for &route in routes {
                                 cx.keyed(route.id(), |cx| {
                                     let label = cx.tr(route.id(), route.label());
-                                    if entry(cx, &label, app.router.show(route), route_icon(route),
+                                    if entry(cx, &label, current == route, route_icon(route),
                                         labelled.then_some(reveal)).clicked()
                                     {
-                                        app.router.transition =
-                                            RouterTransition::None;
-                                        app.router.go(route);
+                                        next = route;
                                     }
                                 });
                             }
@@ -123,6 +124,10 @@ pub fn show(cx: &mut UiContext, app: &mut Gallery) {
             }
         };
     };
+    if next != current {
+        app.router.transition = RouterTransition::None;
+        app.router.go(next);
+    }
 }
 
 #[component]
@@ -135,9 +140,8 @@ fn entry(
     reveal: Option<f32>,
 ) -> Response {
     let m = cx.theme().metrics;
-    plico::widgets::sidebar_entry(cx, label, selected).height(m.control_height as f32).min_width(0.).padding_x(8).gap(8)
-        .radius(6.).transition(0).children(|cx| {
-        icon(cx, icon_asset).size(16., 16.);
+    plico::widgets::sidebar_entry(cx, label, selected).children(|cx| {
+        icon(cx, icon_asset);
         if let Some(reveal) = reveal {
             text(cx, label).font_size(m.font_size).weight(400).ellipsis(true).min_width(0.).opacity(reveal);
         }
@@ -154,7 +158,9 @@ fn route_icon(page: Page) -> &'static SvgAsset {
         Page::Patterns | Page::ComponentKit | Page::CuiShowcase | Page::NodeEditor => {
             &icons::LAYERS
         }
-        Page::LiquidGlass | Page::Effects | Page::ShaderPlayground => &icons::SPARKLES,
+        Page::LiquidGlass | Page::LiquidGlassShowcase | Page::Effects | Page::ShaderPlayground => {
+            &icons::SPARKLES
+        }
         Page::Motion | Page::Glass | Page::BlackHole => &icons::SPARKLES,
         Page::Images => &icons::LAYERS,
         Page::Markdown => &icons::MESSAGE_SQUARE,

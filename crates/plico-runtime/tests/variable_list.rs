@@ -60,11 +60,11 @@ fn variable_list_redeclares_from_sparse_host_measurements() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text, (300, 160), 1.)
         .unwrap();
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text, (300, 160), 1.)
             .unwrap();
     }
     assert_eq!(source.view().rendered, 0..4);
@@ -72,7 +72,7 @@ fn variable_list_redeclares_from_sparse_host_measurements() {
     assert!(source.placed_nodes().len() < 32);
     let settled_shows = source.view().shows;
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text, (300, 160), 1.)
         .unwrap();
     assert_eq!(source.view().shows, settled_shows);
 }
@@ -91,7 +91,7 @@ fn prepending_rows_keeps_the_anchor_item_at_the_same_visual_position() {
     let mut scene = Scene::new();
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!(
@@ -108,7 +108,7 @@ fn prepending_rows_keeps_the_anchor_item_at_the_same_visual_position() {
     );
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let anchor = source.view().base + source.view().rendered.start;
@@ -126,7 +126,7 @@ fn prepending_rows_keeps_the_anchor_item_at_the_same_visual_position() {
     });
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let after = source
@@ -165,7 +165,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     let mut scene = Scene::new();
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let initial_end = scroll_offset(&source);
@@ -174,7 +174,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let appended_end = scroll_offset(&source);
@@ -194,7 +194,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     );
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let history_offset = scroll_offset(&source);
@@ -203,7 +203,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!(
@@ -225,7 +225,7 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     );
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let resumed_end = scroll_offset(&source);
@@ -233,19 +233,19 @@ fn follow_end_tracks_growth_until_the_user_scrolls_away() {
     source.update(|view| view.count += 2);
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!(scroll_offset(&source) > resumed_end);
 
     source.update(|view| view.reveal = Some(0));
     source
-        .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
     source.update(|view| view.reveal = None);
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!(scroll_offset(&source) < 0.5, "reveal lost to follow-end");
@@ -280,7 +280,7 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
     let mut scene = Scene::new();
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let offset = |source: &Source<FixedDemo>| {
@@ -297,7 +297,7 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
     source.update(|view| view.count += 5);
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let appended_end = offset(&source);
@@ -313,14 +313,14 @@ fn fixed_list_follow_end_uses_the_same_user_scroll_contract() {
     }));
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let history = offset(&source);
     source.update(|view| view.count += 5);
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!((offset(&source) - history).abs() < 0.5);
@@ -336,7 +336,7 @@ fn fixed_list_prepend_follows_the_anchor_business_key() {
     let mut scene = Scene::new();
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     source.handle_event(UiEvent::Wheel(WheelEvent {
@@ -349,7 +349,7 @@ fn fixed_list_prepend_follows_the_anchor_business_key() {
     }));
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let anchor = source
@@ -372,7 +372,7 @@ fn fixed_list_prepend_follows_the_anchor_business_key() {
     });
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let after = source
@@ -422,7 +422,7 @@ fn fixed_list_keeps_the_section_header_and_the_next_one_pushes_it() {
     let mut scene = Scene::new();
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     source.handle_event(UiEvent::Wheel(WheelEvent {
@@ -435,7 +435,7 @@ fn fixed_list_keeps_the_section_header_and_the_next_one_pushes_it() {
     }));
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!(source.view().rendered.start > 10);
@@ -505,7 +505,7 @@ fn variable_list_measures_and_pins_the_header_above_its_virtual_range() {
     let mut scene = Scene::new();
     for _ in 0..4 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     source.handle_event(UiEvent::Wheel(WheelEvent {
@@ -518,7 +518,7 @@ fn variable_list_measures_and_pins_the_header_above_its_virtual_range() {
     }));
     for _ in 0..5 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     let first = source.view().rendered.start;
@@ -584,31 +584,31 @@ fn animated_follow_end_uses_the_injected_clock_and_retargets_continuously() {
     };
     for _ in 0..3 {
         source
-            .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+            .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
             .unwrap();
     }
     assert!((offset(&source) - 900.).abs() < 0.5);
 
     source.update(|view| view.count += 5);
     source
-        .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
     assert!((offset(&source) - 900.).abs() < 0.5);
     clock.advance(Duration::from_millis(100)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
     let halfway = offset(&source);
     assert!((halfway - 950.).abs() < 1., "halfway offset: {halfway}");
 
     source.update(|view| view.count += 5);
     source
-        .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
     assert!((offset(&source) - halfway).abs() < 1.);
     clock.advance(Duration::from_millis(200)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text_context, (300, 160), 1.)
+        .render_frame(&mut scene, &mut text_context, (300, 160), 1.)
         .unwrap();
     let finished = offset(&source);
     assert!(

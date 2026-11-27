@@ -43,7 +43,7 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
         CodeEditor::new(state),
         "code-editor",
     );
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         source,
         WindowOptions::new()
             .title("Plico · Code editor")

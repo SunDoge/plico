@@ -1,4 +1,5 @@
 //! External logical time drives UI frames without sleeping or opening a window.
+use plico::widgets::{column, text};
 use plico::{Clock, UiContext, VirtualClock, component};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
@@ -7,8 +8,9 @@ struct Timer;
 impl HostView for Timer {
     #[component]
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        ui.column().gap(8).children(|ui| {
-            ui.text(format!("{} ms", ui.now().as_millis()));
+        column(ui).gap(8).children(|ui| {
+            let elapsed = ui.now().as_millis();
+            text(ui, format!("{elapsed} ms"));
             if ui.now() < Duration::from_millis(200) {
                 ui.request_animation_frame();
             }

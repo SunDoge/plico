@@ -1,5 +1,5 @@
 use plico::prelude::*;
-use plico_render::{Composition, Options};
+use plico_render::{Composition, VideoOptions};
 
 fn main() -> Result<(), plico_render::Error> {
     let mut composition = Composition::new(1280, 720, 90, |ui, frame| {
@@ -17,5 +17,5 @@ fn main() -> Result<(), plico_render::Error> {
     .fps(30.)
     .scale(2.);
 
-    plico_render::video(&mut composition, "hello.mp4", Options::default())
+    plico_render::video(&mut composition, "hello.mp4", VideoOptions::default())
 }

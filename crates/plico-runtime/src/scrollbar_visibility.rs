@@ -288,8 +288,7 @@ mod integration {
     }
     fn frame(s: &mut Source<Demo>, text: &mut TextContext) -> Scene {
         let mut scene = Scene::new();
-        s.render_retained_frame(&mut scene, text, (320, 240), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, text, (320, 240), 1.).unwrap();
         scene
     }
     fn pointer(s: &mut Source<Demo>, phase: PointerPhase, point: Point) {
@@ -334,7 +333,7 @@ mod integration {
         }
         let mut source = Source::with_clock(Overlay, VirtualClock::default());
         source
-            .render_retained_frame(&mut Scene::new(), &mut TextContext::new(), (320, 240), 1.)
+            .render_frame(&mut Scene::new(), &mut TextContext::new(), (320, 240), 1.)
             .unwrap();
         let scroll = source
             .adapter

@@ -160,7 +160,7 @@ fn string_binding_drop_commits_and_disabled_edits_are_discarded() {
     #[component]
     fn form(cx: &mut UiContext, value: &mut String, disabled: bool) {
         column(cx).disabled(disabled).children(|cx| {
-            cx.text_input_string("Path", value);
+            text_input_string(cx, "Path", value);
         });
     }
     engine
@@ -199,7 +199,7 @@ fn text_input_keeps_its_fill_and_leaves_hover_to_the_border() {
         .unwrap();
     let input = engine.node(engine.root()).unwrap().children[0];
     let style = engine.node(input).unwrap().style;
-    assert_eq!(style.background, Some(Color::Control));
+    assert_eq!(style.background, Some(Color::Panel));
     assert_eq!(style.hover_background, None);
     assert_eq!(style.pressed_background, None);
     assert_eq!(style.transition_ms, engine.theme().metrics.interaction_ms);

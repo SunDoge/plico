@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "viewport": { "width": 1920, "height": 1080, "scale": 1 },
+  "state": { "router": { "current": "LiquidGlassShowcase" } },
+  "steps": [
+    { "after_ms": 450, "command": { "action": "pointer_click", "role": "button", "label": "Play" } },
+    { "after_ms": 420, "command": { "action": "pointer_click", "role": "button", "label": "Deploy to production" } },
+    { "after_ms": 300, "command": { "action": "pointer_click", "role": "tab", "label": "Year" } },
+    { "after_ms": 340, "command": { "action": "pointer_click", "role": "switch", "label": "Notifications" } },
+    { "after_ms": 220, "command": { "action": "pointer_click", "role": "checkbox", "label": "Remember this device" } },
+    { "after_ms": 240, "command": { "action": "set_value", "label": "Brightness", "value": 72 } },
+    { "after_ms": 400, "command": { "action": "pointer_click", "role": "combobox", "label": "Delivery" } },
+    { "after_ms": 640, "command": { "action": "key", "key": "Escape" } },
+    { "after_ms": 400, "command": { "action": "pointer_click", "role": "button", "label": "Options" } },
+    { "after_ms": 640, "command": { "action": "key", "key": "Escape" } },
+    { "after_ms": 400, "command": { "action": "pointer_click", "role": "button", "label": "Remind me" } },
+    { "after_ms": 900, "command": { "action": "pointer_leave" } }
+  ],
+  "time_ms": 600
+}

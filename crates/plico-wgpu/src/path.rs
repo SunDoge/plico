@@ -56,6 +56,7 @@ impl PathCache {
     /// of the path bounds and `viewport` instead of the whole path. Scenes
     /// pass their root clip so large off-screen geometry cannot exceed the
     /// 64 MiB limit when only a small part is visible.
+    #[tracing::instrument(level = "debug", target = "plico::perf", name = "wgpu.path", skip_all)]
     pub fn raster_clipped(
         &mut self,
         command: &PaintCommand,

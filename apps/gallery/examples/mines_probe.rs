@@ -24,7 +24,7 @@ fn main() {
         renderer.configure_text(&mut text, 1.).unwrap();
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+            .render_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
         let label = format!("Row {}, column {}: hidden", rows / 2 + 1, columns / 2 + 1);
         let target = source
@@ -38,7 +38,7 @@ fn main() {
             clock.set(Duration::from_millis(frame * 17)).unwrap();
             let start = Instant::now();
             source
-                .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+                .render_frame(&mut scene, &mut text, (1120, 820), 1.)
                 .unwrap();
             let cpu_us = start.elapsed().as_micros();
             let gpu = Instant::now();
@@ -54,7 +54,7 @@ fn main() {
         for ms in [2000, 2017, 2034, 2500, 3000] {
             clock.set(Duration::from_millis(ms)).unwrap();
             source
-                .render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+                .render_frame(&mut scene, &mut text, (1120, 820), 1.)
                 .unwrap();
             timer.push(
                 serde_json::json!({"ms":ms,"declare_us":source.frame_diagnostics().declaration_micros,

@@ -60,12 +60,14 @@ fn primary_click_on_osc8_link_opens_only_after_a_committed_click() {
 
     let down = pointer_with_modifiers(PointerPhase::Down, 1.0, 1.0, 1, Modifiers::CONTROL);
     assert_eq!(widget.handle_event(&down), WidgetEventResult::HANDLED);
-    assert_eq!(widget.take_host_action(), None);
+    assert_eq!(widget.take_effect(), None);
     let up = pointer_with_modifiers(PointerPhase::Up, 1.0, 1.0, 0, Modifiers::CONTROL);
     assert_eq!(widget.handle_event(&up), WidgetEventResult::HANDLED);
     assert_eq!(
-        widget.take_host_action(),
-        Some(HostAction::OpenUrl("https://example.com/docs".into()))
+        widget.take_effect().map(|request| request.payload),
+        Some(EffectPayload::OpenUrl {
+            url: "https://example.com/docs".into()
+        })
     );
 }
 
@@ -96,7 +98,7 @@ fn dragging_or_cancelling_an_osc8_link_does_not_open_it() {
             0,
             Modifiers::CONTROL,
         ));
-        assert_eq!(widget.take_host_action(), None);
+        assert_eq!(widget.take_effect(), None);
         assert!(widget.pending_hyperlink.is_none());
     }
 }

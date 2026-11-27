@@ -430,6 +430,168 @@ fn coverage_masks_use_one_gpu_byte_per_pixel_without_aliasing_rgba_images() {
 use super::*;
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn animated_transparent_blur_reuses_nearby_layer_sizes_without_bleeding() {
+    use kurbo::{Affine, Rect};
+    use plico_renderer::{
+        PaintScene, Scene,
+        filter::{BlurEdge, GaussianBlur},
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut previous = None;
+    for width in 25..=28 {
+        let mut scene = Scene::new();
+        scene.push_layer(
+            peniko::Compose::SrcOver,
+            1.,
+            Affine::IDENTITY,
+            &Rect::new(4., 4., 4. + f64::from(width), 28.),
+            Some(
+                GaussianBlur {
+                    sigma: 2.,
+                    edge: BlurEdge::Transparent,
+                }
+                .into_filter()
+                .into(),
+            ),
+            None,
+        );
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &Rect::new(4., 4., 36., 28.),
+        );
+        scene.pop_layer();
+        let rgba = renderer
+            .render_scene(&scene, [48, 40], [0.; 4], false)
+            .unwrap();
+        let alpha = |x: u32, y: u32| rgba[((y * 48 + x) * 4 + 3) as usize];
+        assert_eq!(alpha(16, 16), 255);
+        assert_eq!(alpha(4 + width, 16), 0);
+        let stats = renderer.layer_pool_stats();
+        if let Some(allocations) = previous {
+            assert_eq!((stats.allocations, stats.filter_allocations), allocations);
+        }
+        previous = Some((stats.allocations, stats.filter_allocations));
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn isolated_blur_damage_includes_changes_in_the_sampling_halo() {
+    use kurbo::{Affine, Rect};
+    use plico_renderer::{
+        PaintScene, Scene,
+        filter::{BlurEdge, GaussianBlur},
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let size = [128, 96];
+    let make = |x: f64, clip: Rect| {
+        let mut scene = Scene::new();
+        scene.push_layer(
+            peniko::Compose::SrcOver,
+            1.,
+            Affine::IDENTITY,
+            &clip,
+            Some(
+                GaussianBlur {
+                    sigma: 3.,
+                    edge: BlurEdge::Transparent,
+                }
+                .into_filter()
+                .into(),
+            ),
+            None,
+        );
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::WHITE,
+            None,
+            &Rect::new(x, 20., x + 4., 40.),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let clip = Rect::new(20., 16., 58., 48.);
+    let a = make(14., clip);
+    let first = renderer.render_scene(&a, size, [0.; 4], true).unwrap();
+    assert_eq!(
+        renderer.render_scene(&a, size, [0.; 4], true).unwrap(),
+        first
+    );
+    assert_eq!(renderer.scene_damage_coverage(size), 0.);
+    for changed in [
+        make(12., clip),
+        make(13., clip + kurbo::Vec2::new(1., 2.)),
+        Scene::new(),
+    ] {
+        let image = renderer
+            .render_scene(&changed, size, [0.; 4], true)
+            .unwrap();
+        assert_ne!(image, first);
+        assert!(renderer.scene_damage_coverage(size) > 0.);
+        assert!(renderer.scene_damage_coverage(size) < 0.25);
+        assert_eq!(
+            image,
+            full.render_scene(&changed, size, [0.; 4], false).unwrap()
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn transparent_blur_bounds_follow_ink_without_clipping_offscreen_samples() {
+    use kurbo::{Affine, Rect};
+    use plico_renderer::{
+        PaintScene, Scene,
+        filter::{BlurEdge, GaussianBlur},
+    };
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let make = |edge, opacity| {
+        let mut scene = Scene::new();
+        scene.push_layer(
+            peniko::Compose::SrcOver,
+            opacity,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 240., 180.),
+            Some(GaussianBlur { sigma: 8., edge }.into_filter().into()),
+            None,
+        );
+        scene.fill(
+            peniko::Fill::NonZero,
+            Affine::IDENTITY,
+            peniko::Color::from_rgba8(240, 96, 64, 191),
+            None,
+            &Rect::new(-14.5, 53.25, 5.25, 68.75),
+        );
+        scene.pop_layer();
+        scene
+    };
+    let size = [240, 180];
+    let bounded = renderer
+        .render_scene(&make(BlurEdge::Transparent, 1.), size, [0.; 4], false)
+        .unwrap();
+    let bounded_bytes = renderer.layer_frame_bytes();
+    assert!(bounded[(53 * 240) * 4 + 3] > 0);
+    // The uncropped clamp target already has transparent pixels at its
+    // outermost edge, so both edge modes have the same effective samples.
+    let full = renderer
+        .render_scene(&make(BlurEdge::Clamp, 1.), size, [0.; 4], false)
+        .unwrap();
+    assert_eq!(bounded, full);
+    assert!(bounded_bytes * 4 < renderer.layer_frame_bytes());
+    let hidden = renderer
+        .render_scene(&make(BlurEdge::Transparent, 0.), size, [0.; 4], false)
+        .unwrap();
+    assert!(hidden.iter().all(|value| *value == 0));
+    assert_eq!(renderer.layer_frame_bytes(), 0);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn accepted_material_replacement_invalidates_layers_and_damage_but_rejection_does_not() {
     use plico_renderer::{PaintScene, Scene};
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
@@ -1835,4 +1997,34 @@ fn frame_budget_reports_stages_and_collects_gpu_timestamps() {
             "timestamp queries are available but no sample was collected"
         );
     }
+}
+
+#[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn recording_readback_preserves_submitted_frames_and_recycles_staging() {
+    let mut renderer = pollster::block_on(super::Renderer::new()).unwrap();
+    let size = [61, 29]; // Rows require padding in the staging buffer.
+    let first = renderer
+        .render_items(&[], size, [1., 0., 0., 1.], 0.)
+        .unwrap();
+    let readback = renderer.copy_retained_frame(None).unwrap();
+    let second = renderer
+        .render_items(&[], size, [0., 0., 1., 1.], 0.)
+        .unwrap();
+
+    let readback = std::thread::spawn(move || {
+        assert_eq!(readback.size(), size);
+        assert_eq!(readback.read().unwrap(), first);
+        readback
+    })
+    .join()
+    .unwrap();
+
+    let next = renderer.copy_retained_frame(Some(readback)).unwrap();
+    assert_eq!(next.read().unwrap(), second);
+    assert_eq!(
+        renderer.read_retained_rgba().unwrap().unwrap(),
+        (size, second)
+    );
 }

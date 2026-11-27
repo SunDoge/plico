@@ -8,7 +8,7 @@ struct Custom<'a> {
 impl Widget for Custom<'_> {
     type Response = usize;
     fn show(self, ui: &mut UiContext) -> usize {
-        ui.text(self.label);
+        text(ui, self.label);
         *self.amount += 1;
         *self.amount
     }
@@ -19,7 +19,10 @@ fn entity(engine: &Engine, label: &str) -> plico::Entity {
         .unwrap()
         .children
         .iter()
-        .find(|&&e| engine.node(e).unwrap().text == label)
+        .find(|&&e| {
+            let node = engine.node(e).unwrap();
+            node.text == label
+        })
         .unwrap()
 }
 #[component]
@@ -53,7 +56,7 @@ fn application_widget_is_statically_dispatched_and_keeps_identity_when_a_sibling
 #[test]
 fn direct_show_and_plain_component_function_support_borrowed_state() {
     fn plain(ui: &mut UiContext) -> u32 {
-        ui.text("plain");
+        text(ui, "plain");
         7
     }
     let mut engine = Engine::default();
@@ -80,13 +83,13 @@ fn composite_content_inherits_primary_colors_and_does_not_leak_them_to_siblings(
     let mut engine = Engine::default();
     engine
         .frame_declarations(|ui| {
-            let result = ui.button("Save").primary().children(|ui| {
-                ui.text("Save body");
+            let result = button(ui).text("Save").primary().children(|ui| {
+                text(ui, "Save body");
                 42
             });
             assert_eq!(result.inner, 42);
             assert!(result.response.enabled());
-            ui.text("Outside");
+            text(ui, "Outside");
         })
         .unwrap();
     let button = engine.node(entity(&engine, "Save")).unwrap();
@@ -109,8 +112,8 @@ fn group_disabling_is_inherited_and_cannot_be_undone_by_a_child() {
     let mut engine = Engine::default();
     engine
         .frame_declarations(|ui| {
-            let _ = ui.column().disabled(true).children(|ui| {
-                let response = Button::new("Disabled group").disabled(false).show(ui);
+            let _ = column(ui).disabled(true).children(|ui| {
+                let response = button(ui).text("Disabled group").disabled(false).response();
                 assert!(!response.enabled());
                 assert!(!response.clicked());
             });
@@ -129,8 +132,8 @@ fn group_disabling_is_inherited_and_cannot_be_undone_by_a_child() {
 fn nested_interactive_content_is_rejected_instead_of_adding_ambiguous_focus_targets() {
     let mut engine = Engine::default();
     let result = engine.frame_declarations(|ui| {
-        ui.button_base("Outer").children(|ui| {
-            ui.button("Inner");
+        button_base(ui, "Outer").children(|ui| {
+            button(ui).text("Inner");
         });
     });
     assert_eq!(result, Err(FrameError::NestedControl));
@@ -149,7 +152,7 @@ fn legacy_theme_deserializes_and_metrics_are_shared_by_built_in_widgets() {
     engine.set_theme(theme);
     engine
         .frame_declarations(|ui| {
-            Button::new("Compact").show(ui);
+            button(ui).text("Compact");
         })
         .unwrap();
     let style = engine.node(entity(&engine, "Compact")).unwrap().style;
@@ -158,17 +161,17 @@ fn legacy_theme_deserializes_and_metrics_are_shared_by_built_in_widgets() {
         style.horizontal_padding(),
         theme.metrics.spacing as f32 * 3.5
     );
-    assert_eq!(style.vertical_padding(), theme.metrics.spacing as f32 * 1.5);
+    assert_eq!(style.vertical_padding(), theme.metrics.spacing as f32);
     assert_eq!(style.min_height, Some(theme.metrics.control_height as f32));
     assert_eq!(style.background, Some(Color::Control));
 }
 
 #[test]
-fn standalone_ghost_button_matches_context_button_feedback() {
+fn ghost_button_uses_theme_feedback() {
     let mut engine = Engine::default();
     engine
         .frame_declarations(|ui| {
-            Button::new("Quiet").ghost().show(ui);
+            button(ui).text("Quiet").ghost();
         })
         .unwrap();
     let style = engine.node(entity(&engine, "Quiet")).unwrap().style;

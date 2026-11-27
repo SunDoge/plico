@@ -1,7 +1,7 @@
 use plico::{Theme, View, prelude::*};
 use plico_runtime::{
     NativeView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 
 #[derive(Default)]
@@ -25,7 +25,7 @@ impl View for Counter {
 
 #[test]
 fn native_view_adapts_the_minimal_application_contract() {
-    let mut driver = Driver::new(NativeView(Counter::default()), 400, 300).unwrap();
+    let mut driver = Tester::new(NativeView(Counter::default()), 400, 300).unwrap();
     driver
         .execute(Command::Click {
             role: "button".into(),

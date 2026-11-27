@@ -242,3 +242,87 @@ fn one_timeline_key_cannot_be_requested_twice_in_one_declaration() {
         let _second = cx.timeline("duplicate", TimelineOptions::default());
     });
 }
+
+#[test]
+fn discrete_phases_wake_at_boundaries_and_sample_across_skipped_frames() {
+    use plico::{Changes, LoopPhase};
+    let mut engine = Engine::default();
+    let durations = [
+        Duration::from_millis(200),
+        Duration::ZERO,
+        Duration::from_millis(100),
+    ];
+    for (now, expected, deadline) in [
+        (0, None, 50),
+        (50, Some(LoopPhase { index: 0, cycle: 0 }), 250),
+        (250, Some(LoopPhase { index: 2, cycle: 0 }), 350),
+        (975, Some(LoopPhase { index: 0, cycle: 3 }), 1150),
+    ] {
+        at(&mut engine, now, |cx| {
+            assert_eq!(
+                cx.loop_phases("rounds", Duration::from_millis(50), &durations),
+                expected
+            );
+        });
+        assert_eq!(
+            engine.wake_deadline(),
+            Some(Duration::from_millis(deadline))
+        );
+        assert!(!engine.changes().contains(Changes::ANIMATE));
+    }
+    at(&mut engine, 1000, |_| {});
+    assert_eq!(engine.wake_deadline(), None);
+    at(&mut engine, 1100, |cx| {
+        assert_eq!(
+            cx.loop_phases("rounds", Duration::from_millis(50), &durations),
+            None
+        );
+    });
+    assert_eq!(engine.wake_deadline(), Some(Duration::from_millis(1150)));
+}
+
+#[test]
+fn pulse_arms_retriggers_expires_once_and_cancels_for_reduced_motion() {
+    use plico::{Changes, Pulse};
+    let mut engine = Engine::default();
+    let armed = Pulse {
+        active: true,
+        finished: false,
+    };
+    let finished = Pulse {
+        active: false,
+        finished: true,
+    };
+    let idle = Pulse::default();
+    for (now, trigger, expected, deadline) in [
+        (0, Some(5), idle, None),
+        (20, Some(6), armed, Some(180)),
+        (100, Some(7), armed, Some(260)),
+        (260, Some(7), finished, None),
+        (261, Some(7), idle, None),
+        (280, Some(8), armed, Some(440)),
+        (300, None, idle, None),
+        (320, Some(9), armed, Some(480)),
+    ] {
+        at(&mut engine, now, |cx| {
+            assert_eq!(
+                cx.pulse("press", trigger, Duration::from_millis(160)),
+                expected
+            );
+        });
+        assert_eq!(engine.wake_deadline(), deadline.map(Duration::from_millis));
+        assert!(!engine.changes().contains(Changes::ANIMATE));
+    }
+    engine.set_display_preferences(DisplayPreferences {
+        reduce_motion: true,
+        ..Default::default()
+    });
+    at(&mut engine, 350, |cx| {
+        assert_eq!(cx.pulse("press", Some(9), Duration::from_millis(160)), idle);
+        assert_eq!(
+            cx.loop_phases("rounds", Duration::ZERO, &[Duration::from_secs(1)]),
+            None
+        );
+    });
+    assert_eq!(engine.wake_deadline(), None);
+}

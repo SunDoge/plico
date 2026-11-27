@@ -27,12 +27,12 @@ fn scene_rebuilds_preserve_nested_layers_and_siblings() {
     let mut text = TextContext::new();
     let mut rebuilt = Scene::new();
     source
-        .render_retained_frame(&mut rebuilt, &mut text, (480, 360), 1.)
+        .render_frame(&mut rebuilt, &mut text, (480, 360), 1.)
         .unwrap();
     for (index, scale) in [1., 2., 2., 1.].into_iter().enumerate() {
         source.update(|view| view.changed = !view.changed);
         source
-            .render_retained_frame(&mut rebuilt, &mut text, (480, 360), scale)
+            .render_frame(&mut rebuilt, &mut text, (480, 360), scale)
             .unwrap();
         if matches!(index, 1 | 3) {
             assert_eq!(
@@ -86,11 +86,11 @@ fn unchanged_backdrop_is_reencoded_when_its_prefix_changes() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (200, 200), 1.)
+        .render_frame(&mut scene, &mut text, (200, 200), 1.)
         .unwrap();
     source.update(|view| view.0 = true);
     source
-        .render_retained_frame(&mut scene, &mut text, (200, 200), 1.)
+        .render_frame(&mut scene, &mut text, (200, 200), 1.)
         .unwrap();
     assert_eq!(source.frame_diagnostics().backend.scene_builds, 1);
     let nodes = source.build_frame(&mut text, 200, 200);
@@ -130,7 +130,7 @@ fn workspace_hover_matches_full_encoding() {
         .rect;
     let mut actual = Scene::new();
     source
-        .render_retained_frame(&mut actual, &mut text, (1120, 820), 1.)
+        .render_frame(&mut actual, &mut text, (1120, 820), 1.)
         .unwrap();
     let mut rebuilt_frames = 0;
     for index in 0..6 {
@@ -151,7 +151,7 @@ fn workspace_hover_matches_full_encoding() {
             properties: Default::default(),
         }));
         source
-            .render_retained_frame(&mut actual, &mut text, (1120, 820), 1.)
+            .render_frame(&mut actual, &mut text, (1120, 820), 1.)
             .unwrap();
         rebuilt_frames += source.frame_diagnostics().backend.scene_builds;
         let nodes = source.build_frame(&mut text, 1120, 820);

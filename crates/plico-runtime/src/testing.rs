@@ -365,18 +365,12 @@ pub fn dispatch<V: HostView>(
 
 /// A headless application with an explicitly advanced clock. Layout and input
 /// use the real runtime; this does not simulate an OS window or GPU swapchain.
-pub struct Driver<V: HostView> {
+pub struct Tester<V: HostView> {
     source: Source<V>,
     text: TextContext,
     clock: VirtualClock,
     size: (u32, u32),
 }
-
-/// MyGO-style name for the deterministic high-level test driver.
-///
-/// `Driver` remains available for recipe/transport-oriented code. Application
-/// tests can use `Tester` and the concise name-based helpers on the same type.
-pub type Tester<V> = Driver<V>;
 
 /// Stable layout projection used by differential tests.
 ///
@@ -454,11 +448,11 @@ enum ReplayStep {
 pub struct DifferentialTester<V: HostView + Clone> {
     initial: V,
     initial_size: (u32, u32),
-    live: Driver<V>,
+    live: Tester<V>,
     steps: Vec<ReplayStep>,
 }
 
-impl<V: HostView> Driver<V> {
+impl<V: HostView> Tester<V> {
     pub fn new(view: V, width: u32, height: u32) -> Result<Self, Error> {
         if width == 0 || height == 0 {
             return Err(Error::Viewport);
@@ -512,7 +506,7 @@ impl<V: HostView> Driver<V> {
     pub fn scene_snapshot(&mut self) -> Result<SceneSnapshot, Error> {
         let mut scene = Scene::new();
         self.source
-            .try_render_retained_frame(&mut scene, &mut self.text, self.size, 1.)
+            .render_frame(&mut scene, &mut self.text, self.size, 1.)
             .map_err(|error| Error::Declaration {
                 message: error.to_string(),
             })?;
@@ -535,8 +529,8 @@ impl<V: HostView> Driver<V> {
     }
 
     /// Drain one native host action emitted by the application under test.
-    pub fn take_host_action(&mut self) -> Option<plico_renderer::HostAction> {
-        self.source.take_host_action()
+    pub fn take_effect(&mut self) -> Option<plico_renderer::EffectRequest> {
+        self.source.take_effect()
     }
 
     /// Theme used by the latest settled declaration.
@@ -853,7 +847,7 @@ impl<V: HostView + Clone> DifferentialTester<V> {
         let mut verifier = Self {
             initial: view.clone(),
             initial_size: (width, height),
-            live: Driver::new(view, width, height)?,
+            live: Tester::new(view, width, height)?,
             steps: Vec::new(),
         };
         verifier.verify()?;
@@ -903,8 +897,8 @@ impl<V: HostView + Clone> DifferentialTester<V> {
         Ok(self.snapshot())
     }
 
-    fn replay(&self) -> Result<Driver<V>, Error> {
-        let mut oracle = Driver::new(
+    fn replay(&self) -> Result<Tester<V>, Error> {
+        let mut oracle = Tester::new(
             self.initial.clone(),
             self.initial_size.0,
             self.initial_size.1,
@@ -1014,7 +1008,7 @@ fn sequence_difference<T: PartialEq + std::fmt::Debug>(live: &[T], oracle: &[T])
     }
 }
 
-fn hit_snapshot<V: HostView>(driver: &Driver<V>) -> Vec<Option<u64>> {
+fn hit_snapshot<V: HostView>(driver: &Tester<V>) -> Vec<Option<u64>> {
     let mut points = Vec::new();
     let (width, height) = driver.size;
     for y in 0..=4 {
@@ -1077,10 +1071,10 @@ mod tests {
         struct Label;
         impl HostView for Label {
             fn show(&mut self, cx: &mut plico::UiContext) {
-                cx.text("Ready");
+                plico::widgets::text(cx, "Ready");
             }
         }
-        let mut driver = Driver::new(Label, 320, 240).unwrap();
+        let mut driver = Tester::new(Label, 320, 240).unwrap();
         assert!(driver.has_text("Ready"));
         assert!(!driver.placed_nodes().is_empty());
         assert_eq!(

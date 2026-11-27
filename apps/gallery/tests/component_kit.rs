@@ -1,9 +1,9 @@
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 #[test]
 fn rust_gallery_kit_routes_actions_and_exposes_the_corner_study() {
-    let mut ui = Driver::new(
+    let mut ui = Tester::new(
         Gallery {
             router: Router::new(Page::ComponentKit),
             ..Default::default()

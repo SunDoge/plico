@@ -93,24 +93,39 @@ Rust 测试可以用 `PreviewScenario::record_frames` 接收每帧的虚拟时�
 绘制内容，原生系统菜单等窗口宿主表面仍由真实窗口测试覆盖。带语义断言的 `RecipePlan`
 仍从自己的入口执行，`plico record` 接收 PreviewScenario 格式。
 
+## 真实窗口诊断录制
+
+真实窗口录制由默认关闭的 `plico-desktop/recording` feature 提供。Stillroom 通过自身的
+`recording` feature 启用它。启动时设置 `PLICO_RECORD_DIR`，聚焦窗口后按
+**Ctrl+Shift+F9** 开始，再按一次结束。每次录制在输出目录内创建独立子目录。
+
+```sh
+PLICO_RECORD_DIR=reports/recordings PLICO_RECORD_MP4=1 \
+PLICO_PROFILE=trace PLICO_TELEMETRY_FILE=reports/live-frames.json \
+cargo run --locked -p stillroom --features recording,video
+```
+
+- `frame-*.png` 保存窗口内容的物理像素。`frames.json` 记录每张图的实际采样时间、
+  UI 构建、场景生成和提交耗时。`telemetry_frame_id` 可关联同次运行的 `redraw.cpu`
+  事件。正常退出应用后，`PLICO_TELEMETRY_FILE` 写出完整性能日志。
+- `PLICO_RECORD_MP4=1` 在停止后根据采样时间生成可变帧率 MP4，需要 PATH 上带
+  `libx264` 的 FFmpeg。PNG 和时间戳无需 FFmpeg。原生标题栏和系统弹窗位于窗口
+  内容之外。
+- 录制复用渲染器的留存画面。静止窗口记录起始帧，视频按实际时间保留静止区间。
+  PNG 写入与编码在后台运行，写入跟不上时 `dropped_busy` 和帧号间隔会标记缺帧。
+  最多请求 600 张图，关闭窗口或改变窗口像素尺寸也会结束该次录制。
+
 ## wgpu 离屏预览
 
-`plico-desktop/wgpu` 现在也提供同一套 `capture` 与 `PreviewScenario`，不需要
-开启 Skia。默认 Auto 优先选择 wgpu，仅启用 Skia 时选择 Skia；也可显式指定：
+`plico-desktop/wgpu` 提供 `capture` 与 `PreviewScenario`，桌面实时绘制与离屏预览都使用 wgpu。
 
 ```rust,ignore
-let frame = scenario.render_with_backend(
-    plico_desktop::RenderBackend::Wgpu,
-    plico_desktop::NativeApp,
-)?;
+let frame = scenario.render(plico_desktop::NativeApp)?;
 frame.write_png(output)?;
 ```
 
-低层 frame source 使用 `capture(&mut source).renderer(RenderBackend::Wgpu)`；
-原生 widget source 可用 `render_source_with_backend`。声明、脚本事件几何和最终
-绘制复用同一个后端实例及文字服务，避免预览布局使用另一套文字度量。
-显式选择不可用的后端会报错，不静默换成另一个 renderer。此 capture API 目前
-只支持 Skia／wgpu。wgpu 已连接 Linux／Windows／macOS 的系统文字；macOS CoreText 接入仍属实验，已支持 UTF-8 富文本 span 与单行截断。应用字体注册、span 独立行高和多行省略仍会明确报错。
+低层 frame source 使用 `capture(&mut source, CaptureOptions::new(width, height))`，原生 widget source 可用
+`render_source`。声明、脚本事件几何和最终绘制复用同一套文字服务。
 
 Gallery 可直接使用已有场景：
 
@@ -162,11 +177,11 @@ Gallery 的完整场景为 `apps/gallery/scenarios/black-hole.json`。
 Warden 七个场景的五轮测量及隔离检查见 [Recipe 批处理实验](experiments/recipe-batching.md)。
 当前保留现有 JSON `state + steps + time_ms`，不引入新的场景 DSL。
 
-框架提供 `PreviewSession` 复用后端资源。每次 `render_in` 仍调用工厂创建全新 App，
+框架提供 `CaptureSession` 复用后端资源。每次 `render_in` 仍调用工厂创建全新 App，
 重置 Source、文字上下文、输入状态和虚拟时钟；不沿用上一场景的 UI 状态。
 
 ```rust,ignore
-let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Wgpu);
+let mut session = plico_desktop::CaptureSession::default();
 for (scenario_path, output_path) in recipes {
     let scenario = plico_desktop::PreviewScenario::<PreviewConfig>::load(scenario_path)?;
     scenario.render_in(&mut session, |config| {
@@ -175,7 +190,7 @@ for (scenario_path, output_path) in recipes {
 }
 ```
 
-`PreviewSession` 是有限批次的资源复用 API，不是常驻窗口或进程崩溃隔离机制。
+`CaptureSession` 可用于单帧捕获、连续导出及脚本预览，统一复用 wgpu 资源。
 自定义 native surface 可使用 `render_source_in`。Skia 在尺寸变化时重建 surface；
 目前批处理实验数据和新回归测试来自 wgpu。通用 `plico capture` 尚未增加批处理参数，
 实验命令位于独立 [Plicowarden](plicowarden.md) 的 `recipe_probe` example。

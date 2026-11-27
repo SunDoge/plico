@@ -1,6 +1,6 @@
 //! Desktop window host for the Plico runtime. The declaration runtime lives in
 //! `plico-runtime`; this crate keeps the native launchers, the development CLI
-//! binary, and desktop renderer selection through plico-shell.
+//! binary, and desktop services through plico-shell.
 pub use plico_app_host::{NativeApp, ServiceView, impl_host_view_for_app, tasks};
 pub use plico_runtime::{
     BackendStats, BatchStats, FontAsset, FrameDiagnostics, HitTestDiagnostics, HostView,
@@ -12,135 +12,45 @@ pub use plico_runtime::{SurfaceSource, ZoomController, ZoomSource};
 #[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 mod capture;
 #[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
-pub use capture::{Capture, CaptureError, CaptureProfile, CaptureSession, CapturedFrame, capture};
+pub use capture::{
+    CaptureError, CaptureOptions, CaptureProfile, CaptureSession, CapturedFrame, capture,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use plico_shell::Error as DesktopError;
 
 pub use plico_renderer::platform::{
-    ClipboardContent, ClipboardImage, NotificationRequest, WindowResourceKey,
-    initial_window_resource_key,
+    ClipboardContent, ClipboardImage, EffectCompletion, EffectPayload, EffectQueue, EffectRequest,
+    NotificationRequest, WindowResourceKey, initial_window_resource_key,
 };
 
 pub use plico_renderer::{
-    FrameBudgetSample, HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand,
-    WindowLevel, WindowOptions, WindowResizeEdges,
+    FrameBudgetSample, KeyEvent, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
+    WindowResizeEdges,
 };
-
-/// Run an application directly, without dynamic loading or the development CLI.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run<A: plico_dev::App + 'static>(app: A, title: &str) -> Result<(), DesktopError> {
-    run_with_options(app, WindowOptions::new().title(title))
-}
-
-/// Run an application with durable persisted state (MyGO's WindowStateStore
-/// contract): every value an app declared through `persisted_state` is one
-/// host file under the application's data directory - restored before the
-/// first frame, saved atomically at window close and quit. Sources without
-/// persisted state never write the file. The first launch has none yet.
-///
-/// The window's normal size, position, maximized and fullscreen flags are
-/// restored from and saved to `window-state.json` in the same directory.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_with_persistence<A: plico_dev::App + 'static>(
-    app: A,
-    mut options: WindowOptions,
-    directories: &plico_renderer::platform::AppDirectoryConfig,
-) -> Result<(), DesktopError> {
-    use plico_renderer::platform::AppDirectories;
-    let data_dir = AppDirectories::resolve(directories, "").map(|dirs| dirs.data_dir);
-    let mut extensions: Vec<Box<dyn plico_shell::ShellExtension>> = Vec::new();
-    if let Some(data_dir) = &data_dir {
-        extensions.push(Box::new(plico_shell::PersistedStatePersistence::new(
-            data_dir.join("persisted-state.plico"),
-        )));
-        extensions.push(Box::new(plico_shell::WindowStatePersistence::restore(
-            data_dir.join("window-state.json"),
-            initial_window_resource_key(0),
-            &mut options,
-        )));
-    }
-    plico_shell::run_windows_with_factory_and_extensions(
-        vec![(Box::new(Source::new(NativeApp(app))), options)],
-        None,
-        extensions,
-    )
-    .map(|_| ())
-}
-
-/// Launch an ordinary application view without serializable application state.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_view_with_options<V: plico::View + 'static>(
-    view: V,
-    options: WindowOptions,
-) -> Result<(), DesktopError> {
-    run_host_view_with_options(NativeView(view), options)
-}
-
-/// Launch a view that implements native host capabilities directly.
-/// Useful for services and application-owned wakeups.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_host_view_with_options<V: HostView + 'static>(
-    view: V,
-    options: WindowOptions,
-) -> Result<(), DesktopError> {
-    plico_shell::run_window_with_options(Box::new(Source::new(view)), options)
-}
 
 /// Run a statically linked App with native window configuration.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run_with_options<A: plico_dev::App + 'static>(
+pub fn run<A: plico_dev::App + 'static>(
     app: A,
     options: WindowOptions,
 ) -> Result<(), DesktopError> {
-    plico_shell::run_window_with_options(Box::new(Source::new(NativeApp(app))), options)
+    run_source(Source::new(NativeApp(app)), options)
 }
 
-/// Launch a custom native frame source, including host-owned surfaces.
+/// Launch an ordinary application view with no host integration.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run_source_with_options(
-    source: impl plico_renderer::FrameSource + 'static,
+pub fn run_view<V: plico::View + 'static>(
+    view: V,
     options: WindowOptions,
 ) -> Result<(), DesktopError> {
-    plico_shell::run_window_with_options(Box::new(source), options)
+    run_source(Source::new(NativeView(view)), options)
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-mod services_host {
-    use plico_app_host::ServiceView;
-    use plico_dev::services::{HostService, ServiceApp};
-    use plico_runtime::WindowOptions;
-    use snafu::Snafu;
-
-    #[derive(Debug, Snafu)]
-    pub enum ServiceDesktopError {
-        #[snafu(display("desktop host failed: {source}"))]
-        Desktop { source: crate::DesktopError },
-    }
-
-    /// Launch an application and its typed host services.
-    pub fn run_service_app_with_options<A, S>(
-        app: A,
-        services: S,
-        options: WindowOptions,
-    ) -> Result<(), ServiceDesktopError>
-    where
-        A: ServiceApp + 'static,
-        S: HostService<Snapshot = A::Snapshot, Command = A::Command> + 'static,
-    {
-        crate::run_host_view_with_options(ServiceView::new(app, services), options)
-            .map_err(|source| ServiceDesktopError::Desktop { source })
-    }
-}
-#[cfg(not(target_arch = "wasm32"))]
-pub use services_host::{ServiceDesktopError, run_service_app_with_options};
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
 mod preview;
 #[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
-pub use preview::{
-    PreviewError, PreviewScenario, PreviewSession, PreviewSource, PreviewStep, PreviewViewport,
-};
+pub use preview::{PreviewError, PreviewScenario, PreviewSource, PreviewStep, PreviewViewport};
 
 /// Versioned recipe plans with assertions, fixture events and checkpoint captures.
 #[cfg(all(not(target_arch = "wasm32"), feature = "wgpu"))]
@@ -155,20 +65,9 @@ pub use plico_shell::{
     PersistedStatePersistence, SingleInstance, SingleInstanceError, SingleInstanceOutcome,
     WindowStatePersistence,
 };
-/// Native window services available to desktop integrations.
+/// Native frame source launch and event-loop integrations.
 #[cfg(not(target_arch = "wasm32"))]
-pub use plico_shell::{ExtensionContext, RunOutcome, ShellExtension};
-
-/// Launch a source and native integrations on one event loop.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn run_source_with_extensions(
-    source: impl plico_renderer::FrameSource + 'static,
-    options: WindowOptions,
-    extensions: Vec<Box<dyn ShellExtension>>,
-) -> Result<RunOutcome, DesktopError> {
-    plico_shell::run_windows_with_factory_and_extensions(
-        vec![(Box::new(source), options)],
-        None,
-        extensions,
-    )
-}
+pub use plico_shell::{
+    EventLoopOptions, ExtensionContext, FrameSourceFactory, RunOutcome, ShellExtension,
+    run_window as run_source, run_windows,
+};

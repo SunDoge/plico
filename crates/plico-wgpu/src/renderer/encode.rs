@@ -51,6 +51,7 @@ impl Renderer {
         time: f32,
     ) -> Result<wgpu::CommandEncoder> {
         self.scene_damage.invalidate();
+        self.backdrop_read_keys.clear();
         self.encode_frame_regions(DrawSource::Borrowed(items), size, background, time, None)
     }
 
@@ -71,7 +72,7 @@ impl Renderer {
         regions: Option<&[[u32; 4]]>,
     ) -> Result<wgpu::CommandEncoder> {
         self.batch_stats = FrameBatchStats::default();
-        self.frame_budget = FrameBudget::default();
+        self.frame_budget = plico_renderer::FrameBudgetSample::default();
         if self.layer_depth == 0 {
             self.poll_class_pipelines();
             self.frame_prefix_commands.clear();
@@ -540,6 +541,11 @@ impl Renderer {
                                     },
                                 );
                             let effect = self.backdrop_effects[effect_index].clone();
+                            let cache = if self.layer_depth == 0 {
+                                self.backdrop_read_keys.get(&effect.id()).copied().flatten()
+                            } else {
+                                None
+                            };
                             let mut effects = self.effects.take();
                             pass = encode_backdrop_step(
                                 &self.device,
@@ -566,6 +572,7 @@ impl Renderer {
                                     [x - origin[0], y - origin[1], w, h]
                                 },
                                 &effect,
+                                cache,
                                 self.force_generic_backdrop,
                                 size,
                                 output_scissor,
@@ -599,12 +606,7 @@ impl Renderer {
                 break;
             };
             let layer = self.deferred_layers[instances[marker].config[3] as usize].clone();
-            let [x, y, w, h] = layer.quad.rect;
-            let output = kurbo::Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
-            let input = layer
-                .scene
-                .backdrop_bounds()
-                .map_or(output, |rect| rect.union(output));
+            let input = layer.backdrop_context_bounds();
             let context = self.capture_backdrop_context(encoder, origin, size, input)?;
 
             let resource = self.render_layer(&layer, Some(context.clone()), encoder)?;

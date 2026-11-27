@@ -22,6 +22,7 @@ impl MultiWindowApp {
             windows: HashMap::new(),
             hidden_windows: HashMap::new(),
             window_resources: SlotMap::with_key(),
+            performance_hud: None,
             startup_errors,
             factory,
             wake,
@@ -51,6 +52,73 @@ impl MultiWindowApp {
         self.window_resources.remove(key);
     }
 
+    fn open_performance_hud(&mut self, owner: WindowResourceKey, event_loop: &dyn ActiveEventLoop) {
+        let Some(metrics) = HudMetrics::from_environment() else {
+            return;
+        };
+        let metrics = Rc::new(RefCell::new(metrics));
+        let mut hud = App::with_options(
+            Box::new(HudSource(metrics.clone())),
+            HudSource::window_options(),
+        );
+        hud.set_wake_callback(self.wake.clone());
+        if let Err(error) = hud.create_surface(event_loop) {
+            tracing::warn!(%error, "could not open performance HUD");
+            return;
+        }
+        let hud_id = hud
+            .state
+            .as_ref()
+            .expect("HUD surface created")
+            .window()
+            .id();
+        hud.window_key =
+            WindowResourceKey::from_packed(self.window_resources.insert(()).data().as_ffi())
+                .expect("live window registry key must be valid");
+        let key = hud.window_key;
+        find_window_by_key(self.windows.values_mut(), owner)
+            .expect("HUD owner window")
+            .hud_metrics = Some(metrics);
+        self.windows.insert(hud_id, hud);
+        self.performance_hud = Some((owner, key));
+        Self::extension_context(&mut self.windows, &mut self.hidden_windows, event_loop)
+            .place_window_top_right(key, 24);
+    }
+
+    fn close_performance_hud(&mut self) {
+        let Some((owner, key)) = self.performance_hud.take() else {
+            return;
+        };
+        if let Some(app) = find_window_by_key(self.windows.values_mut(), owner)
+            .or_else(|| self.hidden_windows.get_mut(&owner))
+        {
+            app.hud_metrics = None;
+        }
+        self.windows.retain(|_, app| app.window_key != key);
+        self.release_window_resource(key);
+    }
+
+    fn poll_performance_hud(&mut self, now: Instant) -> Option<Instant> {
+        let (owner, key) = self.performance_hud?;
+        let result = find_window_by_key(self.windows.values_mut(), owner)?
+            .hud_metrics
+            .as_ref()?
+            .borrow_mut()
+            .poll(now);
+        match result {
+            Ok(true) => {
+                if let Some(shell) = find_window_by_key(self.windows.values_mut(), key)
+                    .and_then(|app| app.state.as_ref())
+                {
+                    shell.window().request_redraw();
+                }
+                None
+            }
+            Ok(false) => None,
+            Err(deadline) => Some(deadline),
+        }
+    }
+
     /// Route every close request through extensions before releasing the
     /// logical window. Native decorations and custom titlebars must have the
     /// same close-to-tray and persistence semantics.
@@ -59,6 +127,13 @@ impl MultiWindowApp {
         window_key: WindowResourceKey,
         event_loop: &dyn ActiveEventLoop,
     ) {
+        if self
+            .performance_hud
+            .is_some_and(|(_, hud)| hud == window_key)
+        {
+            self.close_performance_hud();
+            return;
+        }
         let prevented = self
             .windows
             .values_mut()
@@ -83,6 +158,13 @@ impl MultiWindowApp {
             .any(|extension| extension.close_requested(window_key, &mut context))
         {
             return;
+        }
+
+        if self
+            .performance_hud
+            .is_some_and(|(owner, _)| owner == window_key)
+        {
+            self.close_performance_hud();
         }
 
         if let Some(window_id) = self
@@ -387,14 +469,19 @@ impl ApplicationHandler for MultiWindowApp {
     }
 
     fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
+        let mut hud_owner = None;
         for mut app in self.pending.drain(..) {
             app.window_key =
                 WindowResourceKey::from_packed(self.window_resources.insert(()).data().as_ffi())
                     .expect("live window registry key must be valid");
             app.can_create_surfaces(event_loop);
             if let Some(id) = app.state.as_ref().map(|shell| shell.window().id()) {
+                hud_owner.get_or_insert(app.window_key);
                 self.windows.insert(id, app);
             }
+        }
+        if let Some(owner) = hud_owner {
+            self.open_performance_hud(owner, event_loop);
         }
         if !self.extensions_initialized {
             self.extensions_initialized = true;
@@ -432,6 +519,7 @@ impl ApplicationHandler for MultiWindowApp {
         self.windows.clear();
         self.hidden_windows.clear();
         self.window_resources.clear();
+        self.performance_hud = None;
     }
 
     fn proxy_wake_up(&mut self, event_loop: &dyn ActiveEventLoop) {
@@ -573,6 +661,12 @@ impl ApplicationHandler for MultiWindowApp {
                 }
             }
         }
+        if let Some((_, hud)) = self.performance_hud
+            && find_window_by_key(self.windows.values_mut(), hud)
+                .is_some_and(|app| app.application_exit_requested)
+        {
+            self.close_performance_hud();
+        }
         self.apply_extension_effects(event_loop);
         self.apply_window_requests(event_loop);
     }
@@ -587,18 +681,10 @@ impl ApplicationHandler for MultiWindowApp {
             self.dismiss_popup(None, false);
         }
         let now = Instant::now();
-        let mut earliest = None;
+        let mut earliest = self.poll_performance_hud(now);
         for app in self.windows.values_mut() {
-            match app.next_frame_wake(now) {
-                FrameWake::Redraw => {
-                    if let Some(shell) = app.state.as_ref() {
-                        shell.window().request_redraw();
-                    }
-                }
-                FrameWake::Deadline(deadline) => {
-                    earliest = Some(earliest.map_or(deadline, |old: Instant| old.min(deadline)));
-                }
-                FrameWake::Idle => {}
+            if let FrameWake::Deadline(deadline) = app.service_frame_wake(now) {
+                earliest = Some(earliest.map_or(deadline, |old: Instant| old.min(deadline)));
             }
         }
         event_loop.set_control_flow(earliest.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));

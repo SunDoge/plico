@@ -1,7 +1,8 @@
 //! Retained backend work with/without an application rebuild. CPU only.
+use plico::widgets::{column, text};
 use plico::{Color, UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
-use plico_renderer::{FrameSource, Scene, TextContext};
+use plico_renderer::{Scene, TextContext};
 use std::time::{Duration, Instant};
 struct Demo {
     changed: bool,
@@ -11,9 +12,9 @@ struct Demo {
 impl HostView for Demo {
     fn show(&mut self, cx: &mut UiContext) {
         self.calls += 1;
-        cx.column().children(|cx| {
+        column(cx).children(|cx| {
             for i in 0..1000 {
-                cx.text("Retained paragraph")
+                text(cx, "Retained paragraph")
                     .key(i as u64)
                     .color(if i == 0 && self.changed && !self.animate {
                         Color::Literal(0xff0000)
@@ -69,7 +70,7 @@ fn main() {
             }
             let start = Instant::now();
             source
-                .render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+                .render_frame(&mut scene, &mut text, (800, 600), 1.)
                 .unwrap();
             let us = start.elapsed().as_secs_f64() * 1e6;
             if frame >= 16 {

@@ -2,7 +2,7 @@ use plico::{KeyEvent, KeyLocation, KeyPhase, Modifiers, Shortcut, prelude::*};
 use plico_app_host::{NativeApp, ServiceView};
 use plico_dev::App;
 use plico_renderer::{ImeEvent, UiEvent};
-use plico_runtime::testing::{Command, Driver};
+use plico_runtime::testing::{Command, Tester};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -49,7 +49,7 @@ fn key(name: &str) -> UiEvent {
 
 #[test]
 fn native_app_receives_combinations_but_text_editing_and_ime_keep_priority() {
-    let mut driver = Driver::new(NativeApp(Demo::default()), 400, 300).unwrap();
+    let mut driver = Tester::new(NativeApp(Demo::default()), 400, 300).unwrap();
     assert!(driver.dispatch_event(key("k")).unwrap().handled);
     assert_eq!(driver.view().0.count, 1);
     driver
@@ -117,7 +117,7 @@ impl plico_dev::services::HostService for Host {
 #[test]
 fn static_services_and_full_testing_commands_use_the_same_hook() {
     let view = ServiceView::new(ServiceDemo, Host::default());
-    let mut driver = Driver::new(view, 400, 300).unwrap();
+    let mut driver = Tester::new(view, 400, 300).unwrap();
     let UiEvent::Key(event) = key("k") else {
         unreachable!()
     };
@@ -174,7 +174,7 @@ impl plico_dev::services::ServiceApp for ConstructedServiceApp {
 
 #[test]
 fn statically_constructed_apps_do_not_require_default_or_serialization() {
-    let plain = Driver::new(NativeApp(ConstructedApp { label: "plain" }), 400, 300).unwrap();
+    let plain = Tester::new(NativeApp(ConstructedApp { label: "plain" }), 400, 300).unwrap();
     assert!(
         plain
             .snapshot()
@@ -183,7 +183,7 @@ fn statically_constructed_apps_do_not_require_default_or_serialization() {
             .any(|node| node.label.as_deref() == Some("plain"))
     );
 
-    let services = Driver::new(
+    let services = Tester::new(
         ServiceView::new(ConstructedServiceApp { label: "services" }, ConstructedHost),
         400,
         300,

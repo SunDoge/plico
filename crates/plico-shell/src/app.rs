@@ -5,6 +5,7 @@
 use futures_util::stream::{FuturesUnordered, Stream};
 use slotmap::{Key as SlotMapKey, KeyData, SlotMap};
 use snafu::ResultExt;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -27,16 +28,17 @@ use winit::window::{
 };
 
 use crate::WindowResourceKey;
+use crate::performance_hud::{HudMetrics, HudSource, PerformanceHud};
 use crate::shell::Shell;
 use plico_renderer::platform::window_lifecycle::{
     WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
 };
 use plico_renderer::source::{
     AppLifecycleEvent, ClipboardRequest, EventResponse, FileDropEvent, FileDropPhase, FrameSource,
-    FrameStats, GestureEvent, HostAction, ImeEvent, KeyEvent, KeyPhase, Modifiers, Point,
-    PointerButton, PointerEvent, PointerId, PointerPhase, PointerProperties, PointerType,
-    SemanticAction, SemanticRole, UiEvent, WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand,
-    WindowMetrics, WindowOptions,
+    FrameStats, GestureEvent, ImeEvent, KeyEvent, KeyPhase, Modifiers, Point, PointerButton,
+    PointerEvent, PointerId, PointerPhase, PointerProperties, PointerType, SemanticAction,
+    SemanticRole, UiEvent, WakeCallback, WheelDeltaMode, WheelEvent, WindowCommand, WindowMetrics,
+    WindowOptions,
 };
 use plico_renderer::style::CursorStyle;
 
@@ -158,13 +160,20 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
+    #[cfg(target_os = "linux")]
+    wayland_clock: crate::frame_pacing::WaylandFrameClock,
     multi_click_settings: Option<plico_renderer::source::MultiClickSettings>,
-    performance_hud: crate::performance_hud::PerformanceHud,
+    hud_metrics: Option<Rc<RefCell<HudMetrics>>>,
+    inline_hud: Option<PerformanceHud>,
+    #[cfg(feature = "recording")]
+    recording: crate::window_recording::WindowRecording,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
         self.skipped_present_deadline = None;
+        #[cfg(target_os = "linux")]
+        self.wayland_clock.reset();
         if let Some(shell) = self.state.as_mut() {
             shell.invalidate_presentation();
         }
@@ -193,27 +202,13 @@ impl ApplicationHandler for App {
         // Initial size: prefer the source's notion of viewport if it exposes one;
         // otherwise default. For now we read none from the source, so use a sane
         // default that the first resize will correct.
-        let mut shell = match Shell::create(event_loop, &self.window_options) {
-            Ok(shell) => shell,
-            Err(error) => {
-                *self
-                    .startup_error
-                    .lock()
-                    .expect("startup error mutex poisoned") = Some(error);
-                event_loop.exit();
-                return;
-            }
-        };
-        if let Some(wake) = self.wake_callback.clone() {
-            shell.observe_native_events(wake);
-            shell.refresh_display_preferences();
+        if let Err(error) = self.create_surface(event_loop) {
+            *self
+                .startup_error
+                .lock()
+                .expect("startup error mutex poisoned") = Some(error);
+            event_loop.exit();
         }
-        self.source.set_gpu_context(shell.gpu_context());
-        let window = shell.window().clone();
-        self.state = Some(shell);
-        self.sync_multi_click_settings();
-        self.sync_window_metrics();
-        window.request_redraw();
     }
 
     fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
@@ -249,17 +244,11 @@ impl ApplicationHandler for App {
         // A reactive source keeps the redraw loop spinning at vsync while it has
         // pending rAF work; a static source idles (ControlFlow::Wait) until a
         // resize/close.
-        match self.next_frame_wake(Instant::now()) {
-            FrameWake::Redraw => {
-                event_loop.set_control_flow(ControlFlow::Wait);
-                if let Some(shell) = self.state.as_ref() {
-                    shell.window().request_redraw();
-                }
-            }
+        match self.service_frame_wake(Instant::now()) {
             FrameWake::Deadline(deadline) => {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
             }
-            FrameWake::Idle => event_loop.set_control_flow(ControlFlow::Wait),
+            _ => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 }
@@ -276,6 +265,7 @@ struct MultiWindowApp {
     /// sources stay alive and a fresh native surface is created when shown.
     hidden_windows: HashMap<WindowResourceKey, App>,
     window_resources: SlotMap<WindowSlotKey, ()>,
+    performance_hud: Option<(WindowResourceKey, WindowResourceKey)>,
     startup_errors: Vec<Arc<Mutex<Option<crate::Error>>>>,
     factory: Option<FrameSourceFactory>,
     wake: WakeCallback,
@@ -342,6 +332,18 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
                 shell.window().set_title(&title);
             }
         }
+        WindowCommand::RestoreTitle => {
+            if let Some(shell) = app.state.as_ref() {
+                shell.window().set_title(&app.window_options.title);
+            }
+        }
+        WindowCommand::RequestAttention => {
+            if let Some(shell) = app.state.as_ref() {
+                shell
+                    .window()
+                    .request_user_attention(Some(UserAttentionType::Informational));
+            }
+        }
         WindowCommand::SetDecorations(decorations) => {
             app.window_options.decorations = decorations;
             if let Some(shell) = app.state.as_mut() {
@@ -359,54 +361,53 @@ fn apply_window_command(app: &mut App, command: WindowCommand) {
     }
 }
 
-/// Run one frame source in an 800×600 logical native window.
-pub fn run_window(source: Box<dyn FrameSource>) -> crate::Result<()> {
-    run_window_with_size(source, 800, 600)
+/// Native integrations for a group of windows sharing one event loop.
+#[derive(Default)]
+pub struct EventLoopOptions {
+    /// Creates extra windows requested by frame sources.
+    pub factory: Option<FrameSourceFactory>,
+    /// Services started and shut down with the event loop.
+    pub extensions: Vec<Box<dyn ShellExtension>>,
 }
 
-/// Run one frame source with an explicit initial logical size.
-pub fn run_window_with_size(
-    source: Box<dyn FrameSource>,
-    width: u32,
-    height: u32,
-) -> crate::Result<()> {
-    run_window_with_options(
-        source,
-        WindowOptions::new().initial_inner_size(width, height),
-    )
+impl EventLoopOptions {
+    /// Restore the given window's placement and attach app state persistence.
+    /// Apps call this once before launch, passing the initial window's options.
+    pub fn persist_app(
+        &mut self,
+        directories: &crate::AppDirectoryConfig,
+        window: crate::WindowResourceKey,
+        options: &mut WindowOptions,
+    ) {
+        if let Some(dirs) = crate::AppDirectories::resolve(directories, "") {
+            self.extensions
+                .push(Box::new(crate::PersistedStatePersistence::new(
+                    dirs.data_dir.join("persisted-state.plico"),
+                )));
+            self.extensions
+                .push(Box::new(crate::WindowStatePersistence::restore(
+                    dirs.data_dir.join("window-state.json"),
+                    window,
+                    options,
+                )));
+        }
+    }
 }
 
 /// Run one frame source with explicit native window options.
-pub fn run_window_with_options(
-    source: Box<dyn FrameSource>,
-    options: WindowOptions,
-) -> crate::Result<()> {
-    run_windows(vec![(source, options)]).map(|_| ())
+pub fn run_window(source: impl FrameSource + 'static, options: WindowOptions) -> crate::Result<()> {
+    run_windows(
+        vec![(Box::new(source), options)],
+        EventLoopOptions::default(),
+    )
+    .map(|_| ())
 }
 
-/// Run independent frame sources as native windows on one platform event loop.
+/// Run independent windows on one native event loop. The factory and
+/// extensions in `options` share that loop with the initial windows.
 pub fn run_windows(
     windows: Vec<(Box<dyn FrameSource>, WindowOptions)>,
-) -> crate::Result<RunOutcome> {
-    run_windows_with_factory(windows, None)
-}
-
-/// Run initial windows and optionally allow effects to create additional sources.
-pub fn run_windows_with_factory(
-    windows: Vec<(Box<dyn FrameSource>, WindowOptions)>,
-    factory: Option<FrameSourceFactory>,
-) -> crate::Result<RunOutcome> {
-    run_windows_with_factory_and_extensions(windows, factory, Vec::new())
-}
-
-/// Run windows, a dynamic source factory, and native event-loop extensions.
-///
-/// Every source and extension shares one winit event loop while retaining
-/// independent window, renderer, input, and lifecycle state.
-pub fn run_windows_with_factory_and_extensions(
-    mut windows: Vec<(Box<dyn FrameSource>, WindowOptions)>,
-    factory: Option<FrameSourceFactory>,
-    extensions: Vec<Box<dyn ShellExtension>>,
+    options: EventLoopOptions,
 ) -> crate::Result<RunOutcome> {
     if windows.is_empty() {
         return Ok(RunOutcome::Exit);
@@ -418,7 +419,7 @@ pub fn run_windows_with_factory_and_extensions(
     let proxy = event_loop.create_proxy();
     let wake: WakeCallback = std::sync::Arc::new(move || proxy.wake_up());
     let apps = windows
-        .drain(..)
+        .into_iter()
         .map(|(source, options)| {
             let mut app = App::with_options(source, options);
             app.set_wake_callback(wake.clone());
@@ -426,7 +427,13 @@ pub fn run_windows_with_factory_and_extensions(
         })
         .collect();
     let relaunch_requested = Arc::new(AtomicBool::new(false));
-    let app = MultiWindowApp::new(apps, factory, wake, extensions, relaunch_requested.clone());
+    let app = MultiWindowApp::new(
+        apps,
+        options.factory,
+        wake,
+        options.extensions,
+        relaunch_requested.clone(),
+    );
     let errors = app.startup_errors.clone();
     let extension_error = app.extension_error.clone();
     event_loop

@@ -219,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (740, 720), 1.)
+        .render_frame(&mut scene, &mut text, (740, 720), 1.)
         .expect("retained frame");
     std::fs::create_dir_all("reports/state-style")?;
     plico_shell::renderer::render_to_image(&scene, 740, 720, source.base_color())?

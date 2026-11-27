@@ -719,8 +719,19 @@ cannot be reused with another region's clipping.
 The formerly failing test now compares all pixels against large-canvas/crop
 references for left/right/top/bottom source rectangles, both directly inside a
 filter and inside an additional opacity group. This verifies viewport-edge source
-contributions without weakening the final output clip. Filter frames still use
-conservative full damage; this change does not claim incremental-filter redraw.
+contributions without weakening the final output clip.
+
+The renderer now invalidates the complete output clip of an isolated Gaussian
+group when any of its source draws change. It repaints the full source, including
+the halo outside the output clip, before compositing over dirty pixels. Other
+filters keep their full-redraw fallback. Opacity groups that read the parent's
+backdrop record their complete capture rectangle and output clip. Partial replay
+restores the parent prefix across the capture rectangle before rendering the
+group. Unrelated damage can omit the group entirely. A transparent Gaussian
+target can also be bounded by its prepared ink
+plus kernel reach, with a small size bucket for texture reuse. GPU tests compare
+the result against an uncropped filter and compare incremental rendering against
+full redraw as off-clip source pixels move.
 
 ## Externally positioned glyph runs
 

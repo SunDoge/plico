@@ -110,13 +110,13 @@ fn native_children_allow_explicit_context_bindings() {
             column(cx).children(|inner| {
                 text(inner, "Explicit");
             });
-            cx.column().gap(8).children(|cx| {
-                cx.row().children(|cx| {
-                    cx.text("Methods");
+            column(cx).gap(8).children(|cx| {
+                row(cx).children(|cx| {
+                    text(cx, "Nested");
                 });
             });
         })
         .unwrap();
     assert_ne!(find(&engine, "Native"), find(&engine, "Explicit"));
-    find(&engine, "Methods");
+    find(&engine, "Nested");
 }

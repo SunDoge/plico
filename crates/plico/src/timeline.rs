@@ -4,7 +4,116 @@
 //! `f651b1061d917336f31c3ede523cb49c524172eb` (MIT). See
 //! `licenses/MyGo-MIT.txt`.
 use crate::{Easing, LocalState, UiContext};
-use std::{cell::RefCell, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    time::Duration,
+};
+
+/// A sampled phase in a repeating, discrete timeline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoopPhase {
+    /// Zero-based phase index in the supplied duration list.
+    pub index: usize,
+    /// Zero-based repetition of the entire list.
+    pub cycle: u64,
+}
+
+/// A timed pulse sampled on the injected frame clock.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pulse {
+    pub active: bool,
+    /// True once when the hold expires. Cancelling does not report completion.
+    pub finished: bool,
+}
+
+#[derive(Clone, Copy)]
+struct PulseChannel {
+    trigger: Option<u64>,
+    deadline: Option<Duration>,
+}
+
+impl UiContext<'_> {
+    /// Sample a repeating sequence of discrete phases. The first declaration
+    /// starts at the given delay. Only phase boundaries request a new frame.
+    /// Omitting the declaration resets the playhead, as with loop_progress.
+    /// An empty list, an all-zero list or reduced motion disables the loop.
+    pub fn loop_phases(
+        &mut self,
+        key: &'static str,
+        delay: Duration,
+        durations: &[Duration],
+    ) -> Option<LoopPhase> {
+        let total: u128 = durations.iter().map(Duration::as_nanos).sum();
+        if total == 0 || self.display_preferences().reduce_motion {
+            return None;
+        }
+        let now = self.now();
+        let start = *self.channel_state(4, key, || now).read();
+        let first = start.saturating_add(delay);
+        if now < first {
+            self.request_rebuild_at(first);
+            return None;
+        }
+        let elapsed = now.saturating_sub(first).as_nanos();
+        let mut within = elapsed % total;
+        for (index, duration) in durations.iter().enumerate() {
+            if within < duration.as_nanos() {
+                let offset = Duration::new(
+                    (within / 1_000_000_000) as u64,
+                    (within % 1_000_000_000) as u32,
+                );
+                self.request_rebuild_at(now.saturating_add(*duration - offset));
+                return Some(LoopPhase {
+                    index,
+                    cycle: (elapsed / total).min(u128::from(u64::MAX)) as u64,
+                });
+            }
+            within -= duration.as_nanos();
+        }
+        None
+    }
+
+    /// Hold a visual signal when its trigger changes. Mounting with an initial
+    /// trigger does not fire. Pass None to cancel or to arm the next trigger.
+    /// Reduced motion cancels the hold. Only its deadline requests a frame.
+    pub fn pulse(&mut self, key: &'static str, trigger: Option<u64>, hold: Duration) -> Pulse {
+        let now = self.now();
+        let reduced_motion = self.display_preferences().reduce_motion;
+        let state = self.channel_state(5, key, || {
+            Cell::new(PulseChannel {
+                trigger,
+                deadline: None,
+            })
+        });
+        let state = state.read();
+        let mut channel = state.get();
+        if reduced_motion || trigger.is_none() {
+            channel.deadline = None;
+        } else if channel.trigger != trigger {
+            channel.deadline = Some(now.saturating_add(hold));
+        }
+        channel.trigger = trigger;
+        let result = if let Some(deadline) = channel.deadline {
+            if now < deadline {
+                self.request_rebuild_at(deadline);
+                Pulse {
+                    active: true,
+                    finished: false,
+                }
+            } else {
+                channel.deadline = None;
+                Pulse {
+                    active: false,
+                    finished: true,
+                }
+            }
+        } else {
+            Pulse::default()
+        };
+        state.set(channel);
+        result
+    }
+}
 
 /// Repeat a timeline for as long as it remains declared.
 pub const REPEAT_FOREVER: i32 = -1;

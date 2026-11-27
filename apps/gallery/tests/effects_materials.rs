@@ -1,6 +1,6 @@
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 #[test]
 fn glass_profile_and_clarity_controls_update_the_gallery_without_enabling_motion() {
     let mut app = Gallery {
@@ -8,7 +8,7 @@ fn glass_profile_and_clarity_controls_update_the_gallery_without_enabling_motion
         ..Default::default()
     };
     app.effects.paused = true;
-    let mut driver = Driver::new(app, 1120, 900).unwrap();
+    let mut driver = Tester::new(app, 1120, 900).unwrap();
     for (label, value) in [
         ("Regular", "regular"),
         ("Clear", "clear"),
@@ -50,7 +50,7 @@ fn preview_pointer_commands_capture_hover_press_and_release_without_changing_but
     };
     app.effects.paused = true;
     app.effects.glass_style = "regular".into();
-    let mut driver = Driver::new(app, 1120, 900).unwrap();
+    let mut driver = Tester::new(app, 1120, 900).unwrap();
     let bounds = driver
         .snapshot()
         .exposed_nodes()
@@ -83,8 +83,8 @@ fn liquid_controls_handle_native_actions_and_guard_slide_confirmation() {
         router: Router::new(Page::Effects),
         ..Default::default()
     };
-    let mut driver = Driver::new(app, 1400, 2000).unwrap();
-    let click = |driver: &mut Driver<Gallery>, role: &str, label: &str| {
+    let mut driver = Tester::new(app, 1400, 2000).unwrap();
+    let click = |driver: &mut Tester<Gallery>, role: &str, label: &str| {
         driver
             .execute(Command::Click {
                 role: role.into(),
@@ -161,7 +161,7 @@ fn liquid_controls_handle_native_actions_and_guard_slide_confirmation() {
 
 #[test]
 fn showcase_dropdown_reopens_with_four_distinct_commands() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -202,7 +202,7 @@ fn showcase_dropdown_reopens_with_four_distinct_commands() {
 #[test]
 fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
     use std::time::Duration;
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -211,14 +211,14 @@ fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
         2000,
     )
     .unwrap();
-    let click = |driver: &mut Driver<Gallery>, label: &str| {
+    let click = |driver: &mut Tester<Gallery>, label: &str| {
         driver.execute(Command::Click {
             role: "button".into(),
             label: label.into(),
             occurrence: None,
         })
     };
-    let visible = |driver: &Driver<Gallery>, label: &str| {
+    let visible = |driver: &Tester<Gallery>, label: &str| {
         driver
             .get_by_role(plico_renderer::SemanticRole::Button, label)
             .is_ok()
@@ -240,7 +240,7 @@ fn showcase_action_waits_for_completion_and_reset_cancels_the_previous_run() {
 #[test]
 fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
     use plico_renderer::SemanticToggleState::{Off, On};
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -250,7 +250,7 @@ fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
     )
     .unwrap();
     for label in ["Notifications", "Remember this device", "Circle"] {
-        let control = |driver: &Driver<Gallery>| {
+        let control = |driver: &Tester<Gallery>| {
             let snapshot = driver.snapshot();
             let node = snapshot
                 .exposed_nodes()
@@ -317,7 +317,7 @@ fn showcase_toggles_respond_to_pointer_on_indicator_and_label() {
 #[test]
 fn liquid_gallery_places_select_below_and_dropdown_over_its_anchor() {
     use plico_renderer::SemanticRole;
-    let mut d = Driver::new(
+    let mut d = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -341,7 +341,7 @@ fn liquid_gallery_places_select_below_and_dropdown_over_its_anchor() {
         ),
     ] {
         let a = d.get_by_role(anchor_role, label).unwrap().bounds;
-        let pointer_click = |d: &mut Driver<Gallery>, [left, top, right, bottom]: [f32; 4]| {
+        let pointer_click = |d: &mut Tester<Gallery>, [left, top, right, bottom]: [f32; 4]| {
             let (x, y) = (
                 f64::from((left + right) / 2.),
                 f64::from((top + bottom) / 2.),
@@ -409,7 +409,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
     use std::time::Duration;
 
     for (label, direction) in [("Options", 1.), ("Remind me", -1.), ("More", 1.)] {
-        let mut driver = Driver::new(
+        let mut driver = Tester::new(
             Gallery {
                 router: Router::new(Page::LiquidGlass),
                 ..Default::default()
@@ -419,7 +419,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
         )
         .unwrap();
         let anchor = driver.get_by_role(Button, label).unwrap().bounds;
-        let surface = |driver: &Driver<Gallery>| {
+        let surface = |driver: &Tester<Gallery>| {
             driver.placed_nodes().iter().find_map(|node| {
                 node.paint
                     .widget
@@ -489,7 +489,7 @@ fn centered_liquid_popups_throw_in_opposite_directions_and_close_softly() {
 
 #[test]
 fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -524,7 +524,7 @@ fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
     assert_eq!(pressed_glass.len(), 1);
     assert!(pressed_glass[0].rect[2] - pressed_glass[0].rect[0] > archive[2] - archive[0] + 40.);
     driver.execute(Command::PointerUp { x, y }).unwrap();
-    let click = |driver: &mut Driver<Gallery>, role: &str, label: &str| {
+    let click = |driver: &mut Tester<Gallery>, role: &str, label: &str| {
         driver
             .execute(Command::PointerClick {
                 role: role.into(),
@@ -552,7 +552,7 @@ fn liquid_gallery_reminder_and_group_more_accept_pointer_choices() {
 #[test]
 fn showcase_tabs_drag_and_alarm_slider_commit_on_release() {
     use plico_renderer::SemanticRole::{Button, Tab};
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -610,7 +610,7 @@ fn showcase_tabs_drag_and_alarm_slider_commit_on_release() {
 #[test]
 fn showcase_brightness_preserves_grab_offset_and_maps_the_full_track() {
     use plico_renderer::SemanticRole::Slider;
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -622,7 +622,7 @@ fn showcase_brightness_preserves_grab_offset_and_maps_the_full_track() {
     driver
         .advance(std::time::Duration::from_millis(500))
         .unwrap();
-    let brightness = |driver: &Driver<Gallery>| driver.get_by_role(Slider, "Brightness").unwrap();
+    let brightness = |driver: &Tester<Gallery>| driver.get_by_role(Slider, "Brightness").unwrap();
     let [left, top, right, bottom] = brightness(&driver).bounds;
     let width = f64::from(right - left);
     let y = f64::from((top + bottom) * 0.5);
@@ -660,7 +660,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
     use plico_renderer::{PaintCommand, SemanticRole};
     use std::time::Duration;
 
-    let mut driver = Driver::new(
+    let mut driver = Tester::new(
         Gallery {
             router: Router::new(Page::LiquidGlass),
             ..Default::default()
@@ -681,7 +681,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
         })
         .unwrap();
     driver.advance(Duration::from_millis(110)).unwrap();
-    let face_height = |driver: &Driver<Gallery>| {
+    let face_height = |driver: &Tester<Gallery>| {
         driver
             .placed_nodes()
             .iter()
@@ -704,7 +704,7 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
             .unwrap()
     };
     let early_height = face_height(&driver);
-    let opacity = |driver: &Driver<Gallery>, label: &str| {
+    let opacity = |driver: &Tester<Gallery>, label: &str| {
         driver
             .placed_nodes()
             .iter()
@@ -737,4 +737,354 @@ fn stretched_dropdown_reveals_items_in_order_and_retracts() {
     assert!(opacity(&driver, "Rename") > opacity(&driver, "Delete"));
     driver.advance(Duration::from_millis(250)).unwrap();
     assert!(driver.all_by_role(SemanticRole::Menu).is_empty());
+}
+
+#[test]
+fn liquid_showcase_reflows_live_controls_and_records_the_overview() {
+    use plico_desktop::PreviewScenario;
+    use plico_renderer::SemanticRole::{Button, Label, TreeItem};
+
+    let scenario: PreviewScenario<Gallery> =
+        serde_json::from_str(include_str!("../scenarios/liquid-showcase-recording.json")).unwrap();
+    let mut driver = Tester::new(Gallery::default(), 1920, 1080).unwrap();
+    assert!(driver.get_by_role(TreeItem, "Liquid Glass").is_ok());
+    driver
+        .execute(Command::Click {
+            role: "treeitem".into(),
+            label: "Liquid Glass Showcase".into(),
+            occurrence: None,
+        })
+        .unwrap();
+    assert_eq!(driver.view().router.current(), Page::LiquidGlassShowcase);
+
+    let button = driver.get_by_role(Button, "Play").unwrap().id;
+    let bounds = |driver: &Tester<Gallery>, title| driver.get_by_role(Label, title).unwrap().bounds;
+    let first = bounds(&driver, "Button");
+    let second = bounds(&driver, "Action Button");
+    assert_eq!(first[1], second[1]);
+    assert!(second[0] > first[2]);
+    assert!(bounds(&driver, "Popover")[3] < 1080.);
+
+    driver.resize(640, 740).unwrap();
+    let first = bounds(&driver, "Button");
+    let second = bounds(&driver, "Action Button");
+    assert_eq!(first[0], second[0]);
+    assert!(second[1] > first[3]);
+    assert_eq!(driver.get_by_role(Button, "Play").unwrap().id, button);
+
+    driver.resize(1920, 1080).unwrap();
+    for step in scenario.steps {
+        // Apply the same fixed-rate samples that drive popup hit targets in a recording.
+        let mut remaining = std::time::Duration::from_millis(step.after_ms);
+        while !remaining.is_zero() {
+            let tick = remaining.min(std::time::Duration::from_millis(16));
+            driver.advance(tick).unwrap();
+            remaining -= tick;
+        }
+        driver.execute(step.command).unwrap();
+    }
+    assert!(driver.get_by_role(Button, "Pause").is_ok());
+    assert!(driver.get_by_role(Button, "Tonight at 8").is_ok());
+}
+
+#[test]
+fn liquid_showcase_autoplay_loops_and_preserves_manual_controls() {
+    use plico_renderer::{
+        SemanticRole::{Button, CheckBox, Slider, Tab},
+        SemanticToggleState::{Off, On},
+        UiEvent, WindowMetrics,
+    };
+    use std::time::Duration;
+
+    let mut driver = Tester::new(
+        Gallery {
+            router: Router::new(Page::LiquidGlassShowcase),
+            ..Default::default()
+        },
+        1920,
+        1080,
+    )
+    .unwrap();
+    let checkbox = "Autoplay animations";
+    let toggle = || Command::PointerClick {
+        role: "checkbox".into(),
+        label: checkbox.into(),
+        occurrence: None,
+    };
+    driver
+        .execute(Command::SetValue {
+            label: "Brightness".into(),
+            value: 65.,
+        })
+        .unwrap();
+    driver.advance(Duration::from_secs(8)).unwrap();
+    assert_eq!(
+        driver
+            .get_by_role(CheckBox, checkbox)
+            .unwrap()
+            .states
+            .checked,
+        Some(Off)
+    );
+    assert!(driver.get_by_role(Button, "Play").is_ok());
+
+    driver.execute(toggle()).unwrap();
+    driver.advance(Duration::from_millis(300)).unwrap();
+    assert!(driver.get_by_role(Button, "Deploying").is_ok());
+    assert_eq!(
+        driver.get_by_role(Tab, "Year").unwrap().states.selected,
+        Some(true)
+    );
+    assert_eq!(
+        driver
+            .get_by_role(Slider, "Brightness")
+            .unwrap()
+            .numeric_value,
+        Some(82.)
+    );
+    let rows = ["Same day", "Mute thread", "Duplicate", "Tonight at 8"];
+    for row in rows {
+        assert!(
+            showcase_paints(&driver, row),
+            "{row} should open in the same frame"
+        );
+    }
+    driver.advance(Duration::from_millis(1400)).unwrap();
+    assert!(driver.get_by_role(Button, "Deployed").is_ok());
+    driver.advance(Duration::from_millis(1400)).unwrap();
+    assert!(driver.get_by_role(Button, "Play").is_ok());
+    driver.advance(Duration::from_millis(750)).unwrap();
+    for row in rows {
+        assert!(!showcase_paints(&driver, row), "{row} should be closed");
+    }
+    driver.advance(Duration::from_millis(200)).unwrap();
+    assert!(driver.get_by_role(Button, "Deploying").is_ok());
+    for row in rows {
+        assert!(
+            showcase_paints(&driver, row),
+            "{row} should reopen in the next cycle"
+        );
+    }
+    assert_eq!(
+        driver
+            .get_by_role(CheckBox, checkbox)
+            .unwrap()
+            .states
+            .checked,
+        Some(On)
+    );
+
+    driver.execute(toggle()).unwrap();
+    driver.advance(Duration::from_secs(8)).unwrap();
+    assert!(driver.get_by_role(Button, "Play").is_ok());
+    assert_eq!(
+        driver
+            .get_by_role(Slider, "Brightness")
+            .unwrap()
+            .numeric_value,
+        Some(65.)
+    );
+
+    driver.execute(toggle()).unwrap();
+    driver.advance(Duration::from_millis(300)).unwrap();
+    driver
+        .dispatch_event(UiEvent::WindowMetrics(WindowMetrics {
+            reduced_motion: true,
+            ..Default::default()
+        }))
+        .unwrap();
+    driver.advance(Duration::from_secs(8)).unwrap();
+    let control = driver.get_by_role(CheckBox, checkbox).unwrap();
+    assert!(control.disabled);
+    assert_eq!(control.states.checked, Some(Off));
+    assert!(driver.get_by_role(Button, "Play").is_ok());
+}
+
+fn showcase_paints(driver: &Tester<Gallery>, label: &str) -> bool {
+    driver
+        .placed_nodes()
+        .iter()
+        .any(|node| node.paint.text.as_deref() == Some(label))
+}
+
+#[test]
+fn liquid_showcase_autoplay_popup_keeps_focus_and_allows_pointer_input() {
+    use plico_renderer::{
+        SemanticRole::{CheckBox, ComboBox, Option},
+        SemanticToggleState::Off,
+    };
+    use std::time::Duration;
+
+    for (width, height) in [(1920, 1080), (1120, 820)] {
+        let mut driver = Tester::new(
+            Gallery {
+                router: Router::new(Page::LiquidGlassShowcase),
+                ..Default::default()
+            },
+            width,
+            height,
+        )
+        .unwrap();
+        let label = "Autoplay animations";
+        let click = || Command::PointerClick {
+            role: "checkbox".into(),
+            label: label.into(),
+            occurrence: None,
+        };
+        let advance_to_delivery = |driver: &mut Tester<Gallery>| {
+            driver.advance(Duration::from_millis(300)).unwrap();
+        };
+        driver.execute(click()).unwrap();
+        driver
+            .execute(Command::Focus {
+                role: "slider".into(),
+                label: "Brightness".into(),
+                occurrence: None,
+            })
+            .unwrap();
+        let focus = driver.snapshot().focus.expect("slider focused");
+        advance_to_delivery(&mut driver);
+        assert_eq!(showcase_paints(&driver, "Same day"), width == 1920);
+        assert_eq!(driver.snapshot().focus, Some(focus));
+        assert!(driver.get_by_role(Option, "Same day").is_err());
+        let expanded = driver
+            .get_by_role(ComboBox, "Delivery")
+            .unwrap()
+            .states
+            .expanded;
+        assert_eq!(expanded, Some(false));
+        driver.execute(click()).unwrap();
+        assert_eq!(
+            driver.get_by_role(CheckBox, label).unwrap().states.checked,
+            Some(Off)
+        );
+        driver.advance(Duration::from_secs(12)).unwrap();
+        assert_eq!(
+            driver
+                .get_by_role(ComboBox, "Delivery")
+                .unwrap()
+                .states
+                .expanded,
+            Some(false)
+        );
+
+        if width == 1920 {
+            driver.execute(click()).unwrap();
+            advance_to_delivery(&mut driver);
+            driver
+                .execute(Command::PointerClick {
+                    role: "combobox".into(),
+                    label: "Delivery".into(),
+                    occurrence: None,
+                })
+                .unwrap();
+            driver.advance(Duration::from_millis(2800)).unwrap();
+            assert_eq!(
+                driver
+                    .get_by_role(ComboBox, "Delivery")
+                    .unwrap()
+                    .states
+                    .expanded,
+                Some(true)
+            );
+            assert!(driver.get_by_role(Option, "Same day").is_ok());
+        }
+    }
+}
+
+#[test]
+fn clear_button_uses_the_same_press_spring_for_pointer_and_autoplay() {
+    use plico_renderer::{PaintCommand, SemanticRole::Button};
+    use std::time::Duration;
+
+    let make_driver = |page| {
+        Tester::new(
+            Gallery {
+                router: Router::new(page),
+                ..Default::default()
+            },
+            1920,
+            1080,
+        )
+        .unwrap()
+    };
+    let optics = |driver: &Tester<Gallery>| {
+        driver
+            .placed_nodes()
+            .iter()
+            .filter_map(|node| node.paint.widget.as_ref())
+            .flat_map(|widget| &widget.commands)
+            .find_map(|command| match command {
+                PaintCommand::Shader { effect, .. }
+                    if effect.values().get(13) == Some(&6.)
+                        && effect.values().get(23) == Some(&0.) =>
+                {
+                    let values = effect.values();
+                    Some([values[17], values[25], values[26]])
+                }
+                _ => None,
+            })
+            .expect("clear button exposes the press and its horizontal and vertical growth")
+    };
+    let mut pointer = make_driver(Page::LiquidGlass);
+    let [left, top, right, bottom] = pointer.get_by_role(Button, "Play").unwrap().bounds;
+    let (x, y) = (
+        f64::from((left + right) / 2.),
+        f64::from((top + bottom) / 2.),
+    );
+    assert_eq!(optics(&pointer), [0.; 3]);
+    pointer.execute(Command::PointerMove { x, y }).unwrap();
+    pointer.advance(Duration::from_millis(100)).unwrap();
+    let [press, horizontal, vertical] = optics(&pointer);
+    assert_eq!(press, 0.);
+    assert!(horizontal > vertical && vertical > 0.);
+    pointer.advance(Duration::from_millis(100)).unwrap();
+    assert!(
+        optics(&pointer)[1] > 5.12,
+        "hover should overshoot its rest size"
+    );
+
+    pointer.execute(Command::PointerDown { x, y }).unwrap();
+    pointer.advance(Duration::from_millis(100)).unwrap();
+    let manual_press = optics(&pointer)[0];
+    assert!(manual_press > 0.5);
+    assert_eq!(
+        pointer.get_by_role(Button, "Play").unwrap().bounds,
+        [left, top, right, bottom],
+        "optical growth must not reflow the hit bounds"
+    );
+    pointer.execute(Command::PointerUp { x, y }).unwrap();
+    assert!(pointer.get_by_role(Button, "Pause").is_ok());
+    pointer.execute(Command::PointerLeave).unwrap();
+    pointer.advance(Duration::from_secs(2)).unwrap();
+    assert!(optics(&pointer).into_iter().all(|value| value.abs() < 0.01));
+
+    let mut autoplay = make_driver(Page::LiquidGlassShowcase);
+    autoplay
+        .execute(Command::PointerClick {
+            role: "checkbox".into(),
+            label: "Autoplay animations".into(),
+            occurrence: None,
+        })
+        .unwrap();
+    autoplay.advance(Duration::from_millis(300)).unwrap();
+    autoplay.advance(Duration::from_millis(100)).unwrap();
+    assert!(
+        (optics(&autoplay)[0] - manual_press).abs() < 0.001,
+        "visual preview should follow the native pointer press curve"
+    );
+    let label = autoplay
+        .placed_nodes()
+        .iter()
+        .find(|node| node.paint.text.as_deref() == Some("Play"))
+        .unwrap();
+    assert!(label.world_transform.as_coeffs()[0] > 1.);
+    assert!(!label.paint.wrap_text && !label.paint.text_ellipsis);
+    assert!(autoplay.get_by_role(Button, "Play").is_ok());
+    autoplay.advance(Duration::from_millis(60)).unwrap();
+    assert!(autoplay.get_by_role(Button, "Pause").is_ok());
+    assert!(
+        optics(&autoplay)[0] > 0.5,
+        "release starts from the held pose"
+    );
 }

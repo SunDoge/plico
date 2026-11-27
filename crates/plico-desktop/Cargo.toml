@@ -34,6 +34,7 @@ image = { workspace = true, optional = true, features = ["png"] }
 [features]
 desktop-integration = ["plico-shell/desktop-integration"]
 wgpu = ["plico-shell/wgpu", "dep:plico-wgpu", "dep:pollster", "dep:image", "dep:tempfile"]
+recording = ["wgpu", "plico-shell/recording"]
 linux-bundled-freetype = ["wgpu", "plico-wgpu/linux-bundled-freetype"]
 default = ["wgpu"]
 profiling = [

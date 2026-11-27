@@ -253,8 +253,8 @@ impl Shell {
         }
         let surface_width = physical_size.width.max(1);
         let surface_height = physical_size.height.max(1);
-        let mut renderer = WindowRenderer::new(options.renderer, transparent)?;
-        renderer.resume(window.clone(), surface_width, surface_height)?;
+        let mut renderer =
+            WindowRenderer::new(window.clone(), transparent, surface_width, surface_height)?;
         let mut tcx = TextContext::new();
         renderer.configure_text(&mut tcx)?;
         tracing::info!(
@@ -564,21 +564,9 @@ impl Shell {
             }
         }
         self.accessibility.publish_root(self.window.as_ref());
-        let result = if self.deferred_show {
-            self.renderer.render_initial(
-                &mut self.scene,
-                self.surface_size[0],
-                self.surface_size[1],
-                base_color,
-            )
-        } else {
-            self.renderer.render(
-                &mut self.scene,
-                self.surface_size[0],
-                self.surface_size[1],
-                base_color,
-            )
-        };
+        let result = self
+            .renderer
+            .present(&mut self.scene, base_color, self.deferred_show);
         if self.deferred_show && self.window.is_visible() == Some(true) {
             self.deferred_show = false;
         }
@@ -608,8 +596,7 @@ impl Shell {
     }
 
     pub(crate) fn damage_coverage(&self) -> Option<f64> {
-        self.renderer
-            .damage_coverage(self.surface_size[0], self.surface_size[1])
+        self.renderer.damage_coverage()
     }
 
     pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {

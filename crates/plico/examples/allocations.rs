@@ -1,4 +1,5 @@
 //! Isolated, single-threaded allocator probe. Unsafe code is confined to this probe.
+use plico::widgets::{column, text};
 use plico::{Color, Engine, UiContext};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -39,12 +40,15 @@ unsafe impl GlobalAlloc for Counted {
 static ALLOCATOR: Counted = Counted;
 fn view(ui: &mut UiContext<'_>, count: usize, color: Color, edit: bool) {
     for index in 0..count {
-        let _ = ui.column().key(index).width(120.).children(|ui| {
-            ui.text(if edit && index % 1000 == 0 {
-                "edited"
-            } else {
-                "stable"
-            })
+        let _ = column(ui).key(index).width(120.).children(|ui| {
+            text(
+                ui,
+                if edit && index % 1000 == 0 {
+                    "edited"
+                } else {
+                    "stable"
+                },
+            )
             .color(color);
         });
     }
@@ -76,9 +80,9 @@ fn main() {
     assert_eq!((second.0, second.1), (0, 0));
     let idle = measured(&mut engine, count, Color::Literal(0x222222), false);
     let color = measured(&mut engine, count, Color::Literal(0x333333), false);
-    let text = measured(&mut engine, count, Color::Literal(0x333333), true);
+    let edited_text = measured(&mut engine, count, Color::Literal(0x333333), true);
     println!(
-        "cold: {cold:?}\nsecond: {second:?}\nunchanged: {idle:?}\ncolor: {color:?}\ntext (same capacity): {text:?}"
+        "cold: {cold:?}\nsecond: {second:?}\nunchanged: {idle:?}\ncolor: {color:?}\ntext (same capacity): {edited_text:?}"
     );
     assert_eq!(
         (idle.0, idle.1, idle.2.measure_calls, idle.2.layout_runs),
@@ -88,13 +92,16 @@ fn main() {
         (color.0, color.1, color.2.measure_calls, color.2.layout_runs),
         (0, 0, 0, 0)
     );
-    assert_eq!((text.0, text.1, text.2.measure_calls), (0, 0, 10));
+    assert_eq!(
+        (edited_text.0, edited_text.1, edited_text.2.measure_calls),
+        (0, 0, 10)
+    );
     // Isolate temporary format! allocations from retained text writes.
     let labels: Vec<_> = (0..count).map(|i| format!("Value: {i}")).collect();
     let mut strings = Engine::default();
     let formatted = |ui: &mut UiContext<'_>| {
         for i in 0..count {
-            ui.text(format!("Value: {i}")).key(i);
+            text(ui, format!("Value: {i}")).key(i);
         }
     };
     measured_view(&mut strings, formatted);
@@ -102,7 +109,7 @@ fn main() {
     let format_each_frame = measured_view(&mut strings, formatted);
     let borrowed = measured_view(&mut strings, |ui| {
         for (i, label) in labels.iter().enumerate() {
-            ui.text(label.as_str()).key(i);
+            text(ui, label.as_str()).key(i);
         }
     });
     assert!(format_each_frame.0 >= count);

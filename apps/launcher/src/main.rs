@@ -1,6 +1,6 @@
 fn main() -> Result<(), plico_desktop::DesktopError> {
-    plico_desktop::run_host_view_with_options(
-        launcher::Launcher::default(),
+    plico_desktop::run_source(
+        plico_desktop::Source::new(launcher::Launcher::default()),
         plico_desktop::WindowOptions::new()
             .title("Plico launcher")
             .initial_inner_size(680, 526)

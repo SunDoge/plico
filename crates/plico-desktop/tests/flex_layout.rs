@@ -1,3 +1,4 @@
+use plico::widgets::{column, row, text};
 use plico::{Align, Justify, UiContext};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, TextContext};
@@ -7,8 +8,7 @@ struct Flex {
 }
 impl HostView for Flex {
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        let _ = ui
-            .row()
+        let _ = row(ui)
             .key("row")
             .width_percent(100.)
             .height(160.)
@@ -17,22 +17,21 @@ impl HostView for Flex {
             .justify(Justify::SpaceBetween)
             .wrap(self.wrap)
             .children(|ui| {
-                ui.column()
+                column(ui)
                     .key("fixed")
                     .background(plico::Color::Literal(0x110000))
                     .width(80.)
                     .shrink(0.)
                     .height(30.)
                     .children(|_ui| {});
-                ui.column()
+                column(ui)
                     .key("grow")
                     .background(plico::Color::Literal(0x001100))
                     .width(0.)
                     .grow(1.)
                     .height(50.)
                     .children(|_ui| {});
-                let _ = ui
-                    .column()
+                let _ = column(ui)
                     .key("ratio")
                     .background(plico::Color::Literal(0x000011))
                     .width_percent(25.)
@@ -93,10 +92,10 @@ fn cross_axis_changes_invalidate_geometry_and_settle() {
 struct Wrap(bool);
 impl HostView for Wrap {
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        let _ = ui.row().width(180.).gap(10).wrap(self.0).children(|ui| {
+        let _ = row(ui).width(180.).gap(10).wrap(self.0).children(|ui| {
             for i in 0..3usize {
-                let _ = ui.column().key(i).width(80.).height(30.).children(|ui| {
-                    ui.text(format!("item-{i}"));
+                let _ = column(ui).key(i).width(80.).height(30.).children(|ui| {
+                    text(ui, format!("item-{i}"));
                 });
             }
         });

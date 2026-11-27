@@ -34,6 +34,7 @@ impl MaskCache {
     pub fn stats(&self) -> (usize, usize) {
         (self.entries.len(), self.bytes)
     }
+    #[tracing::instrument(level = "debug", target = "plico::perf", name = "wgpu.mask", skip_all)]
     pub fn intersect(
         &mut self,
         image: ImageData,

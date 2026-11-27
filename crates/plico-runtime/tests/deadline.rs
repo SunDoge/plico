@@ -33,7 +33,7 @@ impl HostView for Timer {
     }
 }
 fn render(s: &mut Source<Timer>, t: &mut TextContext, scene: &mut Scene) {
-    s.render_retained_frame(scene, t, (300, 200), 1.).unwrap();
+    s.render_frame(scene, t, (300, 200), 1.).unwrap();
 }
 #[test]
 fn earliest_deadline_retains_declarations_until_due_then_cancels() {
@@ -129,11 +129,11 @@ fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .render_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
     source.update(|view| view.target = 100.);
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .render_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
     let started = source.view().declarations;
     assert!(source.has_anim());
@@ -141,7 +141,7 @@ fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
 
     clock.advance(Duration::from_millis(50)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .render_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
     assert_eq!(source.view().declarations, started + 1);
     assert!((source.view().sampled - 87.5).abs() < 1e-4);
@@ -149,7 +149,7 @@ fn declarative_animation_runs_at_host_frames_without_a_fixed_deadline() {
 
     clock.advance(Duration::from_millis(50)).unwrap();
     source
-        .render_retained_frame(&mut scene, &mut text, (300, 200), 1.)
+        .render_frame(&mut scene, &mut text, (300, 200), 1.)
         .unwrap();
     assert_eq!(source.view().sampled, 100.);
     assert!(!source.has_anim());

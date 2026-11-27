@@ -1,4 +1,5 @@
 use gallery::{Gallery, Page};
+use plico::widgets::text;
 use plico_desktop::{HostView, Source};
 use plico_renderer::{
     FrameSource, KeyEvent, KeyLocation, KeyPhase, Modifiers, Point, PointerButton, PointerEvent,
@@ -330,9 +331,9 @@ fn declaration_errors_preserve_last_geometry_instead_of_panicking() {
     struct Invalid(bool);
     impl HostView for Invalid {
         fn show(&mut self, ui: &mut plico::UiContext<'_>) {
-            ui.text("first").key("a");
+            text(ui, "first").key("a");
             if self.0 {
-                ui.text("second").key("a");
+                text(ui, "second").key("a");
             }
         }
     }
@@ -396,21 +397,27 @@ fn expanded_motion_card_fits_minimum_viewport_and_large_text() {
 
 #[test]
 fn typed_routes_unmount_pages_and_keep_application_state() {
+    fn navigate(source: &mut Source<Gallery>, text: &mut TextContext, label: &str) {
+        let target = named(source, SemanticRole::TreeItem, label).id;
+        assert!(source.handle_semantic_action(SemanticAction::Click { target }));
+        frame(source, text, 920);
+    }
+
     let mut s = Source::new(Gallery::default());
     let mut tcx = TextContext::new();
     frame(&mut s, &mut tcx, 920);
     assert!(s.view().router.show(Page::Workspace));
-    click(&mut s, &mut tcx, SemanticRole::Button, "Controls");
+    navigate(&mut s, &mut tcx, "Controls");
     click(&mut s, &mut tcx, SemanticRole::Button, "Increment");
     click(&mut s, &mut tcx, SemanticRole::Switch, "Notifications");
-    click(&mut s, &mut tcx, SemanticRole::Button, "Motion");
+    navigate(&mut s, &mut tcx, "Motion");
     assert!(s.view().router.show(Page::Motion));
     assert!(
         s.semantics()
             .node_by_role(SemanticRole::Button, "Increment", None)
             .is_none()
     );
-    click(&mut s, &mut tcx, SemanticRole::Button, "Controls");
+    navigate(&mut s, &mut tcx, "Controls");
     assert_eq!(s.view().count, 1);
     assert!(s.view().notifications);
     let restored: Gallery =

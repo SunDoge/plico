@@ -3,7 +3,7 @@
 use crate::Frame;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use plico::{Theme, UiContext, VirtualClock};
-use plico_desktop::{CaptureSession, CapturedFrame, HostView, RenderBackend, Source};
+use plico_desktop::{CaptureOptions, CaptureSession, CapturedFrame, HostView, Source};
 use snafu::Snafu;
 use std::{
     ffi::OsString,
@@ -145,30 +145,23 @@ pub enum Codec {
     Vp9,
 }
 
-pub struct Options {
+/// Select which frames a sink receives, with optional progress callbacks.
+#[derive(Default)]
+pub struct FrameOptions {
     pub from: u64,
+    /// Exclusive upper bound. Defaults to the composition's frame count.
     pub to: Option<u64>,
-    pub renderer: RenderBackend,
+    pub progress: Option<Box<dyn FnMut(Progress)>>,
+}
+
+/// Encode a frame range to a compressed video file.
+#[derive(Default)]
+pub struct VideoOptions {
+    pub frames: FrameOptions,
     pub codec: Codec,
     pub bitrate: Option<u64>,
     pub ffmpeg: Option<PathBuf>,
     pub overwrite: bool,
-    pub progress: Option<Box<dyn FnMut(Progress)>>,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Self {
-            from: 0,
-            to: None,
-            renderer: RenderBackend::Auto,
-            codec: Codec::H264,
-            bitrate: None,
-            ffmpeg: None,
-            overwrite: false,
-            progress: None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -238,6 +231,7 @@ where
     clock: VirtualClock,
     source: Source<CompositionView<'a, F>>,
     capture: CaptureSession,
+    capture_options: CaptureOptions,
     width: u32,
     height: u32,
 }
@@ -246,7 +240,7 @@ impl<'a, F> Runner<'a, F>
 where
     F: FnMut(&mut UiContext<'_>, Frame),
 {
-    fn new(comp: &'a mut Composition<F>, backend: RenderBackend) -> Result<Self, Error> {
+    fn new(comp: &'a mut Composition<F>) -> Result<Self, Error> {
         let dimensions = comp.validate()?;
         let clock = VirtualClock::default();
         let view = CompositionView {
@@ -255,20 +249,19 @@ where
             view: &mut comp.view,
         };
         let source = Source::with_clock(view, clock.clone());
-        let capture = CaptureSession::new(
-            backend,
-            dimensions.logical_width,
-            dimensions.logical_height,
-            comp.scale,
-        )
-        .map_err(|source| Error::Capture { source })?;
+        let capture_options = CaptureOptions {
+            scale: comp.scale,
+            settle_passes: 0,
+            ..CaptureOptions::new(dimensions.logical_width, dimensions.logical_height)
+        };
         Ok(Self {
             frame_count: comp.frame_count,
             fps: comp.fps,
             motion_blur: comp.motion_blur,
             clock,
             source,
-            capture,
+            capture: CaptureSession::default(),
+            capture_options,
             width: comp.width,
             height: comp.height,
         })
@@ -308,15 +301,15 @@ where
             .map_err(|source| Error::Clock { source })?;
         self.source.update(|view| view.frame = frame);
         self.capture
-            .render(&mut self.source)
+            .render(&mut self.source, self.capture_options)
             .map_err(|source| Error::Capture { source })
     }
 }
 
 pub fn frames<F>(
     comp: &mut Composition<F>,
-    mut options: Options,
-    mut consume: impl FnMut(u64, &CapturedFrame) -> Result<(), Error>,
+    mut options: FrameOptions,
+    mut consume: impl FnMut(u64, CapturedFrame) -> Result<(), Error>,
 ) -> Result<(), Error>
 where
     F: FnMut(&mut UiContext<'_>, Frame),
@@ -332,39 +325,38 @@ where
     }
     let started = Instant::now();
     let total = to - from;
-    let mut runner = Runner::new(comp, options.renderer)?;
+    let mut runner = Runner::new(comp)?;
     for index in 0..to {
         let image = runner.render(index)?;
         if index < from {
             continue;
         }
-        consume(index, &image)?;
+        consume(index, image)?;
         if let Some(progress) = &mut options.progress {
             progress(Progress {
                 frame: index,
                 done: index - from + 1,
                 frames: total,
                 elapsed: started.elapsed(),
-                renderer: runner.capture.renderer_name().map(str::to_owned),
+                renderer: runner.capture.adapter_name().map(str::to_owned),
             });
         }
     }
     Ok(())
 }
 
-pub fn still<F>(
-    comp: &mut Composition<F>,
-    frame: u64,
-    mut options: Options,
-) -> Result<CapturedFrame, Error>
+pub fn still<F>(comp: &mut Composition<F>, frame: u64) -> Result<CapturedFrame, Error>
 where
     F: FnMut(&mut UiContext<'_>, Frame),
 {
-    options.from = frame;
-    options.to = Some(frame.saturating_add(1));
+    let options = FrameOptions {
+        from: frame,
+        to: Some(frame.saturating_add(1)),
+        ..FrameOptions::default()
+    };
     let mut result = None;
     frames(comp, options, |_, image| {
-        result = Some(image.clone());
+        result = Some(image);
         Ok(())
     })?;
     result.ok_or_else(|| Error::InvalidRange {
@@ -377,7 +369,7 @@ where
 pub fn images<F>(
     comp: &mut Composition<F>,
     pattern: impl AsRef<str>,
-    options: Options,
+    options: FrameOptions,
 ) -> Result<(), Error>
 where
     F: FnMut(&mut UiContext<'_>, Frame),
@@ -454,7 +446,7 @@ fn frame_path(pattern: &str, index: u64) -> Result<PathBuf, Error> {
 pub fn video<F>(
     comp: &mut Composition<F>,
     path: impl AsRef<Path>,
-    options: Options,
+    options: VideoOptions,
 ) -> Result<(), Error>
 where
     F: FnMut(&mut UiContext<'_>, Frame),
@@ -485,17 +477,22 @@ where
             message: "H.264 requires MP4/M4V and VP9 requires WebM".into(),
         });
     }
-    let temporary = temporary_video_path(path, &extension);
-    if let Some(parent) = temporary
+    let directory = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
-    {
-        std::fs::create_dir_all(parent).map_err(|source| Error::Io {
-            operation: "create video directory",
-            path: parent.to_owned(),
+        .unwrap_or(Path::new("."));
+    std::fs::create_dir_all(directory).map_err(|source| Error::Io {
+        operation: "create video directory",
+        path: directory.to_owned(),
+        source,
+    })?;
+    let temporary = tempfile::NamedTempFile::new_in(directory)
+        .map_err(|source| Error::Io {
+            operation: "reserve temporary video",
+            path: directory.to_owned(),
             source,
-        })?;
-    }
+        })?
+        .into_temp_path();
     let binary: OsString = options
         .ffmpeg
         .as_deref()
@@ -541,7 +538,7 @@ where
             command.args(["-f", container]);
         }
     }
-    command.output(&temporary);
+    command.overwrite().output(&temporary);
     let mut child = command.spawn().map_err(|source| Error::Io {
         operation: "start ffmpeg",
         path: PathBuf::from("ffmpeg"),
@@ -558,10 +555,10 @@ where
         let _ = stderr.read_to_string(&mut message);
         message
     });
-    let render_result = frames(comp, options, |_, image| {
+    let render_result = frames(comp, options.frames, |_, image| {
         stdin.write_all(image.rgba()).map_err(|source| Error::Io {
             operation: "write ffmpeg frame",
-            path: temporary.clone(),
+            path: temporary.to_path_buf(),
             source,
         })
     });
@@ -571,31 +568,33 @@ where
     }
     let status = child.wait().map_err(|source| Error::Io {
         operation: "wait for ffmpeg",
-        path: temporary.clone(),
+        path: temporary.to_path_buf(),
         source,
     })?;
     let stderr = stderr_reader.join().unwrap_or_default();
-    if let Err(error) = render_result {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
-    }
+    render_result?;
     if !status.success() {
-        let _ = std::fs::remove_file(&temporary);
         return Err(Error::Ffmpeg {
             message: stderr.trim().to_owned(),
         });
     }
-    if path.exists() {
-        std::fs::remove_file(path).map_err(|source| Error::Io {
-            operation: "replace video",
-            path: path.to_owned(),
-            source,
-        })?;
-    }
-    std::fs::rename(&temporary, path).map_err(|source| Error::Io {
-        operation: "publish video",
-        path: path.to_owned(),
-        source,
+    let published = if options.overwrite {
+        temporary.persist(path)
+    } else {
+        temporary.persist_noclobber(path)
+    };
+    published.map_err(|error| {
+        if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+            Error::OutputExists {
+                path: path.to_owned(),
+            }
+        } else {
+            Error::Io {
+                operation: "publish video",
+                path: path.to_owned(),
+                source: error.error,
+            }
+        }
     })
 }
 
@@ -608,18 +607,6 @@ fn frame_rate(fps: f64) -> (u64, u64) {
         return (ntsc as u64, 1001);
     }
     ((fps * 1000.).round() as u64, 1000)
-}
-
-fn temporary_video_path(path: &Path, extension: &str) -> PathBuf {
-    let mut name = path
-        .file_stem()
-        .map_or_else(|| OsString::from("video"), OsString::from);
-    name.push(format!(
-        ".plico-rendering-{}.{}",
-        std::process::id(),
-        extension
-    ));
-    path.with_file_name(name)
 }
 
 #[cfg(test)]

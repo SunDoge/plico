@@ -44,7 +44,7 @@ widget scene 放在该节点的绘制位置，保留场景的裁剪和上下绘�
 当前 terminal 示例仍是静态链接应用，没有增加终端的 dylib 热重载入口。
 
 路由支持焦点、局部指针/滚轮、拖动捕获、键盘、文本/IME 事件与候选框基础几何。
-已有 widget 的剪贴板 HostAction 转为 typed effects，再路由结果到原 widget request id。
+原生控件通过 effect 请求剪贴板读写，宿主把结果按原请求 ID 交给对应控件。
 上层 Plico 控件优先命中；模态范围参与 surface 输入检查。
 IME、图形和系统剪贴板并未宣称在所有桌面平台完成端到端验收。
 

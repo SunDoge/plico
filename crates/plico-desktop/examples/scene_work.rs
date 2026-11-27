@@ -85,7 +85,7 @@ fn run(rows: usize, case: Case, options: &Options) {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, &mut text, (800, height), 1.)
+        .render_frame(&mut scene, &mut text, (800, height), 1.)
         .unwrap();
     let mut total = Vec::with_capacity(options.samples);
     let mut encode = Vec::with_capacity(options.samples);
@@ -100,7 +100,7 @@ fn run(rows: usize, case: Case, options: &Options) {
         let calls = source.view().calls;
         let start = Instant::now();
         let (_, _, scene_ms) = source
-            .try_render_retained_frame(&mut scene, &mut text, (800, height), 1.)
+            .render_frame(&mut scene, &mut text, (800, height), 1.)
             .unwrap();
         let elapsed = start.elapsed().as_secs_f64() * 1e6;
         if matches!(case, Case::Idle | Case::Redeclare) {

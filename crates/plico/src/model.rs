@@ -531,6 +531,10 @@ pub struct Style {
     /// Position this overlay beside the corresponding trigger.
     #[invalidates(LAYOUT, HIT_TEST, SEMANTICS)]
     pub popup_anchor: Option<u64>,
+    /// A visible anchored panel that does not participate in input.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[invalidates(HIT_TEST, SEMANTICS)]
+    pub popup_preview: bool,
     /// Use the liquid menu or listbox placement and item treatment.
     #[serde(default)]
     #[invalidates(LAYOUT, PAINT, HIT_TEST)]
@@ -573,6 +577,10 @@ pub struct Style {
     /// Paint-only translation in logical pixels, applied after layout.
     #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub translate: [f32; 2],
+    /// This translation is a presentation offset from the resting layout.
+    #[serde(default)]
+    #[invalidates(PAINT)]
+    pub translation_from_rest: bool,
     /// Paint-only scale around the center of the border box.
     #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub scale: [f32; 2],
@@ -606,6 +614,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "is_false")]
     #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
     pub text_ellipsis: bool,
+    /// Keep text at its intrinsic width, preserving explicit line breaks.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[invalidates(MEASURE, LAYOUT, PAINT, SEMANTICS)]
+    pub text_no_wrap: bool,
     #[invalidates(PAINT)]
     pub foreground: Color,
     #[invalidates(PAINT)]
@@ -695,6 +707,7 @@ impl Default for Style {
             focus_axis: None,
             selection_follows_focus: false,
             popup_anchor: None,
+            popup_preview: false,
             liquid_popup: false,
             popup_over_anchor: false,
             popup_motion: false,
@@ -712,6 +725,7 @@ impl Default for Style {
             font_family: FontFamily::Default,
             opacity: 1.,
             translate: [0., 0.],
+            translation_from_rest: false,
             scale: [1., 1.],
             radius: 0.,
             transition_ms: 0,
@@ -726,6 +740,7 @@ impl Default for Style {
             pressed_background: None,
             font_size: 16,
             text_ellipsis: false,
+            text_no_wrap: false,
             foreground: Color::Foreground,
             background: None,
             disabled: false,

@@ -15,12 +15,14 @@ let mut composition = Composition::new(1920, 1080, 180, |ui, frame| {
 .fps(30.)
 .scale(2.);
 
-plico_render::video(&mut composition, "hello.mp4", Options::default())?;
+plico_render::video(&mut composition, "hello.mp4", VideoOptions::default())?;
 ```
 
-FFmpeg is not downloaded by the framework. `Options::ffmpeg` selects a binary;
+FFmpeg is not downloaded by the framework. `VideoOptions::ffmpeg` selects a binary;
 otherwise `ffmpeg` is resolved by the operating system. `ffmpeg-sidecar` is
 built without its download feature.
+
+`FrameOptions` sets the frame range and progress callback for `frames`, `images`, and `VideoOptions::frames`. Use `still` for an individual frame. Video encoders publish the completed file from a temporary sibling.
 
 `MotionBlur` samples deterministic subframes across a shutter interval and
 averages premultiplied pixels. `Frame::sequence`, `shift`, `looped`,

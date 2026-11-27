@@ -82,9 +82,7 @@ pub(crate) fn search_field_with(
         .align(Align::Center)
         .gap(m.spacing as f32 * 1.5)
         .children(|cx| {
-            let _ = svg(cx, &SEARCH)
-                .size(m.font_size as f32, m.font_size as f32)
-                .color(Color::Muted);
+            let _ = icon(cx, &SEARCH).color(Color::Muted);
             let response = text_input_string(cx, label, value)
                 .placeholder(placeholder)
                 .autofocus(autofocus)
@@ -92,30 +90,30 @@ pub(crate) fn search_field_with(
                 .find_navigation(find_navigation)
                 .unstyled()
                 .width(0.)
-                .min_width(0.)
+                .min_width(m.space(15))
                 .grow(1.)
-                .height(m.font_size as f32 * 1.4)
-                .min_height(0.)
                 .response();
             changed |= response.changed();
             submitted |= response.submitted();
             navigation = response.navigation();
-            if !value.is_empty()
-                && button_base(cx, "Clear search")
-                    .width(m.space(5) as f32)
-                    .height(m.space(5) as f32)
-                    .min_height(0.)
-                    .padding(0.)
-                    .radius(m.radius as f32)
-                    .hover_background(Color::ControlHover)
-                    .pressed_background(Color::ControlPressed)
-                    .children(|cx| {
-                        let _ = svg(cx, &crate::icons::X)
-                            .size(m.label_size as f32, m.label_size as f32)
-                            .color(Color::Muted);
-                    })
-                    .response
-                    .clicked()
+            if value.is_empty() {
+                column(cx).width(m.control_icon()).shrink(0.).end();
+            } else if button_base(cx, "Clear search")
+                .width(m.control_icon())
+                .height(m.control_icon())
+                .shrink(0.)
+                .min_height(0.)
+                .padding(0.)
+                .radius(m.radius as f32)
+                .hover_background(Color::ControlHover)
+                .pressed_background(Color::ControlPressed)
+                .children(|cx| {
+                    let _ = svg(cx, &crate::icons::X)
+                        .size(m.label_size as f32, m.label_size as f32)
+                        .color(Color::Muted);
+                })
+                .response
+                .clicked()
             {
                 value.clear();
                 changed = true;

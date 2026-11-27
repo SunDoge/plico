@@ -8,8 +8,7 @@ the asset rather than an arbitrary offset in the widget.
 Use `icon(cx, asset)` for UI icons: it follows the inherited font size plus two
 logical pixels and does not shrink in flex layout. `svg(cx, asset)` remains the
 24×24 general asset constructor; `.size(...)` explicitly overrides either one.
-Standalone `widgets::Button` and context-first button icon shortcuts use the
-same content implementation. Menu icons follow inherited text size as well.
+Menu icons follow inherited text size as well.
 
 Button shortcut labels and menu/selection labels stay on one line and ellipsize
 when constrained. Their full accessible names remain intact. Use a tooltip or
@@ -18,7 +17,7 @@ Custom `button(cx) + |cx| { ... }` content remains freely configurable, includin
 multiline text. Default children center alignment handles ordinary icon/text
 rows; unstyled `button_base` leaves appearance and alignment to the component.
 
-Leaf buttons and toggle text blocks center vertically within the available
+Button content and toggle text blocks center vertically within the available
 content height. Wrapped toggle labels keep the indicator beside the first line,
 not the middle of the paragraph. Paint-only animation frames recompute placement
 from box geometry so offsets cannot accumulate. Checkbox unchecked state uses an

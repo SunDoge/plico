@@ -1,6 +1,7 @@
 //! Deterministic real-render captures; no native window or sleeps.
 use gallery::Gallery;
 use plico::UiContext;
+use plico::widgets::text;
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, SemanticAction, SemanticRole, TextContext};
 use std::time::{Duration, Instant};
@@ -88,7 +89,7 @@ impl HostView for Batch {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         for id in 0..self.count {
-            ui.text("Animated")
+            text(ui, "Animated")
                 .key(id)
                 .width(if self.expanded { 200. } else { 100. })
                 .height(24.)

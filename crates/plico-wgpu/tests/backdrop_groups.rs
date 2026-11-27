@@ -189,3 +189,57 @@ fn changing_prior_and_later_ink_matches_full_replay_for_nested_groups() {
         assert_eq!(actual, expected, "paint order / partial replay frame {i}");
     }
 }
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn small_backdrop_group_replays_its_input_alongside_unrelated_damage() {
+    let mut partial = pollster::block_on(Renderer::new()).unwrap();
+    let mut full = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let id = ShaderEffectId::new();
+    let source = ShaderEffectSource::with_backdrop(
+        "fn plico_effect(uv:vec2f)->vec4f { let c = plico_backdrop_at(uv); return vec4f(c.bgr,c.a); }",
+        true,
+    ).unwrap();
+    let mut cx = plico_renderer::widget::PaintContext::new(40., 40., 1., &mut text);
+    cx.draw_shader_effect(id, source, 0., Vec::<f32>::new().into());
+    let effect = cx.finish();
+    for i in 0..6 {
+        let mut scene = Scene::new();
+        fill(
+            &mut scene,
+            Rect::new(0., 0., 256., 192.),
+            Color::from_rgb8(72, 80, 100),
+        );
+        fill(
+            &mut scene,
+            Rect::new(30., 40., 48., 54.),
+            if i == 0 { Color::WHITE } else { Color::BLACK },
+        );
+        scene.push_layer(
+            BlendMode::default(),
+            0.5,
+            Affine::IDENTITY,
+            &Rect::new(0., 0., 256., 192.),
+            None,
+            None,
+        );
+        scene.append_scene(effect.clone(), Affine::translate((24., 32.)));
+        scene.pop_layer();
+        let x = f64::from(200 + i);
+        fill(&mut scene, Rect::new(x, 135., x + 9., 142.), Color::WHITE);
+        let pixels = partial
+            .render_scene(&scene, [256, 192], [0.; 4], true)
+            .unwrap();
+        assert_eq!(
+            pixels,
+            full.render_scene(&scene, [256, 192], [0.; 4], false)
+                .unwrap()
+        );
+        if i > 0 {
+            assert!(partial.scene_damage_coverage([256, 192]) < 0.2);
+            assert!(partial.batch_stats().clears > 0, "expected bounded replay");
+            assert_eq!(partial.batch_stats().backdrop_copies, u64::from(i == 1));
+        }
+    }
+}

@@ -29,7 +29,7 @@ impl HostView for Demo {
 fn frame(source: &mut Source<Demo>, text: &mut TextContext) -> Scene {
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, text, (200, 100), 1.)
+        .render_frame(&mut scene, text, (200, 100), 1.)
         .unwrap();
     assert_eq!(source.shader_diagnostics().count(), 0);
     scene
@@ -225,8 +225,8 @@ fn parent_clip_still_contains_the_expanded_material_and_no_opaque_button_fill_is
 
 #[test]
 fn material_background_keeps_keyboard_focus_chrome() {
-    use plico_desktop::testing::{Command, Driver};
-    let mut driver = Driver::new(
+    use plico_desktop::testing::{Command, Tester};
+    let mut driver = Tester::new(
         Demo {
             shows: 0,
             clicks: 0,

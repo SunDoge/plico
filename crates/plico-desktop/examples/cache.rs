@@ -55,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             let mut scene = Scene::new();
             source
-                .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                .render_frame(&mut scene, &mut tcx, (800, 30000), 1.)
                 .unwrap();
             if scene_copies.is_none() {
                 let mut deep = Vec::new();
@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if mode != "idle" {
                 source.update(|view| view.active = true);
                 source
-                    .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                    .render_frame(&mut scene, &mut tcx, (800, 30000), 1.)
                     .unwrap();
             }
             let mut times = Vec::new();
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if retained {
                     black_box(
                         source
-                            .try_render_retained_frame(&mut scene, &mut tcx, (800, 30000), 1.)
+                            .render_frame(&mut scene, &mut tcx, (800, 30000), 1.)
                             .unwrap(),
                     );
                 } else {

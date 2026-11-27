@@ -1,11 +1,11 @@
 #![cfg(feature = "host")]
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 use plico_renderer::{SemanticRole, SemanticToggleState};
 
-fn driver(page: Page) -> Driver<Gallery> {
-    Driver::new(
+fn driver(page: Page) -> Tester<Gallery> {
+    Tester::new(
         Gallery {
             router: Router::new(page),
             ..Default::default()
@@ -15,7 +15,7 @@ fn driver(page: Page) -> Driver<Gallery> {
     )
     .unwrap()
 }
-fn click(driver: &mut Driver<Gallery>, role: &str, label: &str) {
+fn click(driver: &mut Tester<Gallery>, role: &str, label: &str) {
     driver
         .execute(Command::Click {
             role: role.into(),
@@ -194,7 +194,7 @@ fn tree_scopes_keep_independent_selection_and_restore_after_navigation() {
 
 #[test]
 fn chinese_status_filter_and_select_visible_use_the_same_rows() {
-    let mut d = Driver::new(
+    let mut d = Tester::new(
         Gallery {
             language: gallery::i18n::Language::Chinese,
             router: Router::new(Page::DataTable),
@@ -231,4 +231,21 @@ fn chinese_status_filter_and_select_visible_use_the_same_rows() {
             .node_by_role(SemanticRole::Label, "2 项已选", None)
             .is_some()
     );
+}
+
+#[test]
+fn virtual_list_demo_animates_the_rows_after_a_pointer_click() {
+    let mut d = driver(Page::Lists);
+    let row_y = |d: &Tester<Gallery>, label: &str| d.find(label).unwrap().bounds[1];
+    let second = row_y(&d, "Record 00002");
+    let third = row_y(&d, "Record 00003");
+
+    d.click("Swap rows 2 and 3").unwrap();
+    assert!((row_y(&d, "Record 00002") - second).abs() < 0.6);
+    d.advance(std::time::Duration::from_millis(80)).unwrap();
+    let moving = row_y(&d, "Record 00002");
+    assert!(second < moving && moving < third);
+    d.settle().unwrap();
+    assert!((row_y(&d, "Record 00002") - third).abs() < 0.6);
+    assert!((row_y(&d, "Record 00003") - second).abs() < 0.6);
 }

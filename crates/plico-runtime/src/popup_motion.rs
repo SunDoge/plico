@@ -164,4 +164,30 @@ impl PopupMotion {
             Self::List(list) => list.sample(now, open),
         }
     }
+
+    pub(super) fn open_at_rest(centered: bool, now: Duration) -> Self {
+        if centered {
+            let settled = plico::OpticalSpring {
+                x: 1.,
+                velocity: 0.,
+            };
+            Self::Morph(PopupMorph {
+                last: Some(now),
+                waiting: 0.2,
+                open: true,
+                lead: settled,
+                cross: settled,
+                calm: settled,
+                drop: settled,
+                content: 1.,
+                ..PopupMorph::default()
+            })
+        } else {
+            Self::List(PopupList {
+                last: Some(now),
+                open: true,
+                time: PopupList::END,
+            })
+        }
+    }
 }

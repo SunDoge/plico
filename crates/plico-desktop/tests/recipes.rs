@@ -1,7 +1,7 @@
 #![cfg(feature = "wgpu")]
 use plico::prelude::*;
 use plico_desktop::{
-    HostView, PreviewSession, RenderBackend,
+    CaptureSession, HostView,
     recipe::{RecipeMode, RecipePlan},
 };
 use serde_json::{Value, json};
@@ -67,7 +67,7 @@ fn wait_advances_only_virtual_time_until_success_or_exact_timeout() {
     ]);
     let results = p
         .run(
-            &mut PreviewSession::new(RenderBackend::Wgpu),
+            &mut CaptureSession::default(),
             RecipeMode::Semantic,
             dir.path(),
             create,
@@ -117,7 +117,7 @@ fn semantic_plan_executes_in_order_injects_events_and_reports_failure_without_st
     ]);
     let results = p
         .run(
-            &mut PreviewSession::new(RenderBackend::Wgpu),
+            &mut CaptureSession::default(),
             RecipeMode::Semantic,
             dir.path(),
             create,
@@ -189,7 +189,7 @@ fn invalid_plan_never_calls_factory_or_creates_artifacts() {
     let observed = called.clone();
     assert!(
         p.run(
-            &mut PreviewSession::new(RenderBackend::Wgpu),
+            &mut CaptureSession::default(),
             RecipeMode::Semantic,
             &root,
             move |state| {
@@ -234,7 +234,7 @@ fn visual_checkpoints_capture_one_continuous_flow_and_keep_failure_evidence() {
     ]);
     let results = p
         .run(
-            &mut PreviewSession::new(RenderBackend::Wgpu),
+            &mut CaptureSession::default(),
             RecipeMode::Visual,
             dir.path(),
             create,

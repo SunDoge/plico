@@ -459,33 +459,6 @@ pub enum ClipboardRequest {
     Read,
 }
 
-/// An asynchronous request from a frame source to its native window host.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HostAction {
-    /// Control the current native window, without needing a window resource ID.
-    Window(crate::WindowCommand),
-    /// Open a URL with the platform's registered handler.
-    OpenUrl(String),
-    /// Replace clipboard text without requiring an acknowledgement.
-    ///
-    /// Widget-side request vocabulary; the applier translates it into the
-    /// clipboard-write effect before it reaches the shell.
-    SetClipboard(String),
-    /// Read clipboard text and route completion back to the producer.
-    ///
-    /// Widget-side request vocabulary; the applier translates it into the
-    /// clipboard-read effect and delivers the result through
-    /// [`crate::Widget::deliver_clipboard_text`].
-    ReadClipboard {
-        /// Producer-local request identifier.
-        request_id: u64,
-    },
-    /// `None` restores the host's default title.
-    SetWindowTitle(Option<String>),
-    /// Ask the window manager to draw the user's attention.
-    RequestAttention,
-}
-
 /// Thread-safe callback used by asynchronous producers to wake the native
 /// application loop.
 pub type WakeCallback = Arc<dyn Fn() + Send + Sync>;
@@ -558,9 +531,9 @@ pub struct FrameStats {
     /// backend does not report it. Blended like the other timings; the first
     /// sample is kept at full weight.
     pub gpu_ms: Option<f64>,
-    /// Actual fraction of the acquired target redrawn in the last successful
-    /// frame, including buffer history. `None` means the backend does not
-    /// report it. This is a raw sample, unlike the timing EMAs.
+    /// Backend-reported damage fraction for the last successful frame.
+    /// Wgpu reports the estimated dirty area before choosing full or partial
+    /// redraw. `None` means the backend does not report damage.
     pub damage_coverage: Option<f64>,
     /// Number of retained nodes in the frame.
     pub node_count: usize,
@@ -578,7 +551,11 @@ pub struct ScreenshotRequest {
     pub file: std::fs::File,
 }
 
-/// Backend-neutral renderer work for one frame, blended into [`FrameStats`].
+/// Renderer work for one frame, blended into [`FrameStats`].
+///
+/// wgpu's GPU timing brackets the root command encoder, including its final
+/// blit or readback copy. Separate image mip prefixes are reflected in the
+/// command buffer count.
 #[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
 pub struct FrameBudgetSample {
     /// CPU time building the instance stream.

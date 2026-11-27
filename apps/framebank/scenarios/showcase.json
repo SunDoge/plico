@@ -1,0 +1,11 @@
+{
+  "viewport": { "width": 1280, "height": 850, "scale": 1 },
+  "steps": [
+    { "after_ms": 950, "command": { "action": "click", "role": "button", "label": "Quiet elevations" } },
+    { "after_ms": 900, "command": { "action": "click", "role": "button", "label": "Related" } },
+    { "after_ms": 900, "command": { "action": "click", "role": "button", "label": "Details" } },
+    { "after_ms": 750, "command": { "action": "click", "role": "button", "label": "Tidal study" } },
+    { "after_ms": 1000, "command": { "action": "click", "role": "button", "label": "Library" } }
+  ],
+  "time_ms": 800
+}

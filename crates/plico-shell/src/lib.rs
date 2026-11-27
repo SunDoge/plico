@@ -32,13 +32,11 @@ pub mod desktop;
 pub mod effect;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod error;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod headless;
 mod persisted_state;
 pub use persisted_state::PersistedStatePersistence;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watch;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod frame_pacing;
 #[cfg(target_os = "linux")]
 mod linux_preferences;
@@ -62,6 +60,8 @@ mod single_instance;
 mod system;
 #[cfg(any(target_os = "macos", test))]
 mod titlebar_action;
+#[cfg(all(not(target_arch = "wasm32"), feature = "recording"))]
+mod window_recording;
 #[cfg(not(target_arch = "wasm32"))]
 mod window_renderer;
 #[cfg(not(target_arch = "wasm32"))]
@@ -75,18 +75,17 @@ pub use single_instance::{
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use app::{
-    ExtensionContext, FrameSourceFactory, RunOutcome, ShellExtension, run_window,
-    run_window_with_options, run_window_with_size, run_windows, run_windows_with_factory,
-    run_windows_with_factory_and_extensions,
+    EventLoopOptions, ExtensionContext, FrameSourceFactory, RunOutcome, ShellExtension, run_window,
+    run_windows,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use app_dirs::{AppDirectories, AppDirectoryConfig};
 pub use effect::{
     CapabilityId, ClipboardContent, ClipboardImage, ContextMenuItem, ContextMenuRequest,
     DialogFilter, EFFECT_PROTOCOL_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
-    EffectExecutor, EffectId, EffectOp, EffectPayload, EffectRequest, EffectResult, EffectScope,
-    EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel, MessageDialogRequest,
-    MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,
+    EffectExecutor, EffectId, EffectOp, EffectPayload, EffectQueue, EffectRequest, EffectResult,
+    EffectScope, EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel,
+    MessageDialogRequest, MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,
     RecordingEffectExecutor, ReplayEffectExecutor, SaveDialogRequest, WindowResourceKey,
     initial_window_resource_key,
 };
@@ -95,7 +94,7 @@ pub use error::{Error, Result};
 #[cfg(not(target_arch = "wasm32"))]
 pub use shell::Shell;
 #[cfg(not(target_arch = "wasm32"))]
-pub use window_state::{WindowSizePersistence, WindowStatePersistence};
+pub use window_state::WindowStatePersistence;
 #[cfg(not(target_arch = "wasm32"))]
 pub use winit::raw_window_handle;
 

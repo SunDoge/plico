@@ -166,7 +166,7 @@ fn paint_and_measure_use_the_content_width_of_padded_text() {
 }
 
 #[test]
-fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
+fn tall_controls_center_the_text_block_without_paint_frame_drift() {
     #[derive(Default)]
     struct Tall {
         checked: bool,
@@ -176,7 +176,7 @@ fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
         #[component]
         fn show(&mut self, cx: &mut UiContext) {
             column(cx).gap(8).children(|cx| {
-                cx.button("Legacy action").width(220.).height(80.);
+                button(cx).text("Action").width(220.).height(80.);
                 checkbox(
                     cx,
                     if self.long { LONG } else { "保存更改 Agjp" },
@@ -197,20 +197,30 @@ fn tall_leaf_controls_center_the_text_block_without_paint_frame_drift() {
         for millis in [0, 35, 70, 105, 140, 180] {
             clock.advance(Duration::from_millis(millis)).unwrap();
             s.build_frame(&mut tcx, 400, 500);
+            let button_rect = s
+                .semantics()
+                .node_by_role(plico_renderer::SemanticRole::Button, "Action", None)
+                .unwrap()
+                .bounds;
             for node in s.placed_nodes().iter().filter(|n| n.paint.text.is_some()) {
                 let text = plico_renderer::scene::layout_node_text(&mut tcx, node).unwrap();
                 let text_center = node.content_origin[1] + text.height() / 2.;
-                let control_center = (node.rect[1] + node.rect[3]) / 2.;
+                let is_button_label = node.paint.text.as_deref() == Some("Action");
+                let rect = if is_button_label {
+                    button_rect
+                } else {
+                    node.rect
+                };
+                let control_center = (rect[1] + rect[3]) / 2.;
                 assert!(
                     (text_center - control_center).abs() < 1.,
                     "{:?} at {:?}",
                     node.paint.text,
                     node.content_origin
                 );
-                if node.paint.text.as_deref() == Some("Legacy action") {
+                if is_button_label {
                     assert!(
-                        (node.content_origin[0] + text.width() / 2.
-                            - (node.rect[0] + node.rect[2]) / 2.)
+                        (node.content_origin[0] + text.width() / 2. - (rect[0] + rect[2]) / 2.)
                             .abs()
                             < 1.
                     );

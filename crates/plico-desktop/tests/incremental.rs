@@ -1,3 +1,4 @@
+use plico::widgets::{button, text};
 use plico::{Changes, UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, Scene, TextContext};
@@ -22,7 +23,7 @@ impl HostView for Sparse {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
         for (i, label) in self.labels.iter().enumerate() {
-            ui.text(label.as_str())
+            text(ui, label.as_str())
                 .key(i)
                 .width(if i == 0 && self.wider { 300. } else { 100. })
                 .height(24.)
@@ -109,8 +110,8 @@ fn declaration_journal_survives_settling_and_patches_only_the_changed_label() {
     struct Counter(u32);
     impl HostView for Counter {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text(format!("Count: {}", self.0)).key("count");
-            if ui.button("Increment").key("increment").clicked() {
+            text(ui, format!("Count: {}", self.0)).key("count");
+            if button(ui).text("Increment").key("increment").clicked() {
                 self.0 += 1;
             }
         }
@@ -166,9 +167,9 @@ fn failed_declaration_does_not_hide_property_changes_from_the_next_commit() {
     }
     impl HostView for Repair {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text("Box").key("box").width(self.width);
+            text(ui, "Box").key("box").width(self.width);
             if self.invalid {
-                ui.text("Duplicate").key("box");
+                text(ui, "Duplicate").key("box");
             }
         }
     }
@@ -203,7 +204,7 @@ fn manual_declaration_preserves_pending_backend_work_until_commit() {
     struct Width(f32);
     impl HostView for Width {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text("Box").width(self.0);
+            text(ui, "Box").width(self.0);
         }
     }
     let mut s = Source::new(Width(100.));
@@ -224,8 +225,8 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     struct Controls(bool);
     impl HostView for Controls {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.button("A").key("a").disabled(self.0);
-            ui.button("B").key("b");
+            button(ui).text("A").key("a").disabled(self.0);
+            button(ui).text("B").key("b");
         }
     }
     use plico_renderer::{SemanticAction, SemanticRole};
@@ -233,6 +234,13 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     let mut s = Source::with_clock(Controls(false), clock.clone());
     let mut text = TextContext::new();
     s.build_frame(&mut text, 400, 300);
+    let a_box = s
+        .placed_nodes()
+        .iter()
+        .find(|n| n.paint.text.as_deref() == Some("A"))
+        .unwrap()
+        .parent_node_id
+        .unwrap();
     let snapshot = s.semantics();
     let a = snapshot
         .node_by_role(SemanticRole::Button, "A", None)
@@ -251,7 +259,7 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     assert_eq!(
         nodes
             .iter()
-            .find(|n| n.paint.text.as_deref() == Some("A"))
+            .find(|n| n.node_id == a_box)
             .unwrap()
             .paint
             .outline_width,
@@ -266,7 +274,7 @@ fn interaction_and_disabled_paint_update_without_declared_geometry_changes() {
     assert_eq!(
         nodes
             .iter()
-            .find(|n| n.paint.text.as_deref() == Some("A"))
+            .find(|n| n.node_id == a_box)
             .unwrap()
             .paint
             .outline_width,
@@ -286,22 +294,22 @@ fn retained_presentation_exports_no_nodes_and_shared_scene_cache_is_immutable() 
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     let first = s
-        .try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+        .render_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     assert_eq!(first.0, 1001);
     assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
     let original = scene.clone();
-    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+    s.render_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     assert_eq!(s.frame_diagnostics().backend.placed_node_clones, 0);
     assert_eq!(s.frame_diagnostics().backend.scene_reuses, 1);
     assert_eq!(original.commands.as_ptr(), scene.commands.as_ptr());
     s.update(|view| view.fade = true);
-    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+    s.render_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     let calls = s.view().calls;
     clock.advance(Duration::from_millis(100)).unwrap();
-    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+    s.render_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     assert_eq!(s.view().calls, calls);
     assert_eq!(s.frame_diagnostics().backend.sync_visits, 1);
@@ -316,7 +324,7 @@ fn event_preparation_commits_geometry_without_exporting_a_snapshot() {
     let mut s = Source::new(Sparse::new());
     let mut text = TextContext::new();
     let mut scene = Scene::new();
-    s.try_render_retained_frame(&mut scene, &mut text, (800, 30000), 1.)
+    s.render_frame(&mut scene, &mut text, (800, 30000), 1.)
         .unwrap();
     s.update(|view| view.wider = true);
     s.prepare_for_event(&mut text).unwrap();

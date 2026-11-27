@@ -1,5 +1,6 @@
 //! Retained node synchronization and paint construction.
 use super::*;
+use plico_renderer::style::MotionTransform;
 
 impl Adapter {
     pub(super) fn sync(
@@ -311,6 +312,19 @@ impl Adapter {
             }
             style
         });
+        let resting = if target.translation_from_rest {
+            [0.; 2]
+        } else {
+            target.translate
+        };
+        let motion_transform = if visual_style.scale == [1.; 2]
+            && target.scale == [1.; 2]
+            && visual_style.translate != resting
+        {
+            MotionTransform::RestingTranslation(resting)
+        } else {
+            MotionTransform::None
+        };
         let key = PaintKey {
             style: visual_style,
             kind: n.kind,
@@ -321,6 +335,7 @@ impl Adapter {
             checked_progress,
             focus_progress,
             raster_correction,
+            motion_transform,
         };
         let visual_style = key.style;
         let font_family = resolve_font_family(visual_style.font_family, &self.font_family);
@@ -366,6 +381,7 @@ impl Adapter {
             );
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             paint.raster_scale_correction = raster_correction.unwrap_or(1.);
+            paint.motion_transform = motion_transform;
             paint.svg = svg.clone();
             paint.image = image.clone();
             self.tree.set_node_context(id, Some(paint)).unwrap();
@@ -423,7 +439,10 @@ impl Adapter {
                 .font_family
                 .as_deref()
                 != Some(font_family.as_ref());
-        if paint_needed || retained.paint_key.raster_correction != raster_correction {
+        if paint_needed
+            || retained.paint_key.raster_correction != raster_correction
+            || retained.paint_key.motion_transform != motion_transform
+        {
             self.stats.changes.insert(plico::Changes::PAINT);
             // This is the single retained paint mutation path: invalidate all
             // text-affecting values conservatively, including rich runs/theme.
@@ -448,6 +467,7 @@ impl Adapter {
             paint.text_runs = rich_runs(n.spans, visual_style, engine.theme());
             retained.spans = n.spans.to_vec();
             paint.raster_scale_correction = raster_correction.unwrap_or(1.);
+            paint.motion_transform = motion_transform;
             paint.svg = svg;
             paint.image = image;
             // Paint-only changes must not invalidate Taffy's text measurement cache.
@@ -586,7 +606,7 @@ pub(crate) fn make_paint(
             };
             (style.border_width, color)
         }),
-        wrap_text: !style.text_ellipsis,
+        wrap_text: !style.text_ellipsis && !style.text_no_wrap,
         text_ellipsis: style.text_ellipsis,
         ..Default::default()
     };

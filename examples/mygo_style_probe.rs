@@ -1,9 +1,7 @@
 //! Deterministic reference sheet; scripts/compare-mygo-widgets.py runs both implementations.
 use plico::prelude::*;
 use plico::{CalendarState, WeekStart};
-use plico_desktop::{
-    NativeApp, PreviewError, PreviewScenario, PreviewStep, PreviewViewport, RenderBackend,
-};
+use plico_desktop::{NativeApp, PreviewError, PreviewScenario, PreviewStep, PreviewViewport};
 use plico_runtime::testing::Command;
 
 #[derive(Default)]
@@ -177,7 +175,7 @@ fn main() -> Result<(), PreviewError> {
                 ..Default::default()
             };
             scenario
-                .render_with_backend(RenderBackend::Wgpu, |_| {
+                .render(|_| {
                     NativeApp(Controls {
                         dark,
                         value: "Agjpqy 中文 É".into(),
@@ -198,7 +196,7 @@ fn main() -> Result<(), PreviewError> {
             ..Default::default()
         };
         scenario
-            .render_with_backend(RenderBackend::Wgpu, |_| {
+            .render(|_| {
                 NativeApp(Families {
                     dark,
                     tree_open: true,

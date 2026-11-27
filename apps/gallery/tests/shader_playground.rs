@@ -1,16 +1,16 @@
 use gallery::{Gallery, Page};
 use plico::Router;
-use plico_desktop::testing::{Command, Driver};
+use plico_desktop::testing::{Command, Tester};
 use std::time::Duration;
-fn search() -> Driver<Gallery> {
+fn search() -> Tester<Gallery> {
     let mut app = Gallery {
         router: Router::new(Page::ShaderPlayground),
         ..Default::default()
     };
     app.shader_playground.study = "search".into();
-    Driver::new(app, 1120, 820).unwrap()
+    Tester::new(app, 1120, 820).unwrap()
 }
-fn click(driver: &mut Driver<Gallery>, label: &str) {
+fn click(driver: &mut Tester<Gallery>, label: &str) {
     driver
         .execute(Command::Click {
             role: "button".into(),
@@ -19,7 +19,7 @@ fn click(driver: &mut Driver<Gallery>, label: &str) {
         })
         .unwrap();
 }
-fn has_input(driver: &Driver<Gallery>) -> bool {
+fn has_input(driver: &Tester<Gallery>) -> bool {
     driver
         .snapshot()
         .exposed_nodes()

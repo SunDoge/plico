@@ -1,5 +1,6 @@
 //! CPU update cost of a mounted transfer list. Excludes layout, paint and native widgets.
 use nsh_core::element::reactive::{Runtime, batch, effect, signal};
+use plico::widgets::text;
 use plico::{Engine, UiContext};
 use std::{cell::RefCell, hint::black_box, rc::Rc, time::Instant};
 
@@ -13,7 +14,7 @@ fn declare(engine: &mut Engine, values: &[u32], memo: bool) {
             for (row, &value) in values.iter().enumerate() {
                 cx.keyed(row as u64, |cx| {
                     let label = |cx: &mut UiContext| {
-                        cx.text(caption(row, value));
+                        text(cx, caption(row, value));
                     };
                     if memo {
                         cx.memo(value, label);

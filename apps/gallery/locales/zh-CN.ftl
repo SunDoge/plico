@@ -8,6 +8,7 @@ large-text = 大号文字
 virtual-lists = 虚拟列表
 a-bounded-viewport-over-a-large-data-set = 用有限的视口浏览大型数据集。
 virtual-rows = 10,000 行虚拟列表
+swap-virtual-rows = 交换第 2、3 行
 only-the-visible-rows-are-built-scroll-to-explore = 仅声明可见行。滚动即可浏览更多内容。
 controls = 控件
 small-interactions-shared-state-leave-the-page-and-your-values-stay = 轻量交互，共享状态。切换页面后仍保留设置。
@@ -153,6 +154,8 @@ unsaved-changes = 尚未保存
 all-changes-saved = 所有更改已保存
 notifications-enabled = 通知已启用
 notifications-paused = 通知已暂停
+shared-element = 共享元素
+move-shared-element = 移动元素
 motion-studies = 动效实验
 motion-description = 一次状态变化，让尺寸、间距、颜色与透明度同步过渡。
 pause-shader = 暂停着色器
@@ -223,3 +226,6 @@ sidebar-components = 组件
 sidebar-experiments = 实验
 
 sidebar-demos = 演示
+
+liquid-glass-showcase = 液态玻璃展示
+liquid-glass-autoplay = 自动播放动画

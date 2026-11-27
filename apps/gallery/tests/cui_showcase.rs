@@ -2,13 +2,13 @@ use gallery::{Gallery, Page};
 use plico::Router;
 use plico_desktop::{
     Source,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 
 #[test]
 fn cui_showcase_exposes_dense_interactive_workspace() {
-    let mut ui = Driver::new(
+    let mut ui = Tester::new(
         Gallery {
             router: Router::new(Page::CuiShowcase),
             ..Default::default()

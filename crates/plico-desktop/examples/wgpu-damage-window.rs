@@ -1,18 +1,25 @@
 //! Paced real-window wgpu damage A/B probe. Compare PLICO_WGPU_DAMAGE=0/1.
 //! Runs for 18 seconds at a 60 Hz deadline; measure after window/font warmup.
 use plico::prelude::*;
-use plico_desktop::{HostAction, HostView, RenderBackend, Source, WindowCommand, WindowOptions};
+use plico_desktop::{
+    EffectPayload, EffectQueue, EffectRequest, HostView, Source, WindowCommand, WindowOptions,
+};
 use std::time::Duration;
 
 #[derive(Default)]
 struct Demo {
     start: Option<Duration>,
     close: bool,
+    effects: EffectQueue,
     frames: u32,
 }
 impl HostView for Demo {
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        std::mem::take(&mut self.close).then_some(HostAction::Window(WindowCommand::Close))
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        if std::mem::take(&mut self.close) {
+            self.effects
+                .push(EffectPayload::window(WindowCommand::Close));
+        }
+        self.effects.pop()
     }
     #[component]
     #[rustfmt::skip]
@@ -80,9 +87,6 @@ struct Paced {
     next: std::time::Instant,
 }
 impl plico_renderer::FrameSource for Paced {
-    fn set_device_scale(&mut self, scale: f64) {
-        self.source.set_device_scale(scale);
-    }
     fn build_frame(
         &mut self,
         tcx: &mut plico_renderer::TextContext,
@@ -91,16 +95,16 @@ impl plico_renderer::FrameSource for Paced {
     ) -> Vec<plico_renderer::layout::PlacedNode> {
         self.source.build_frame(tcx, w, h)
     }
-    fn render_retained_frame(
+    fn render_frame(
         &mut self,
         scene: &mut plico_renderer::Scene,
         text: &mut plico_renderer::TextContext,
         size: (u32, u32),
         scale: f64,
-    ) -> Result<Option<(usize, f64, f64)>, plico_renderer::FrameSourceError> {
-        let result = self.source.render_retained_frame(scene, text, size, scale);
+    ) -> Result<(usize, f64, f64), plico_renderer::FrameSourceError> {
+        let result = self.source.render_frame(scene, text, size, scale);
         self.next = std::time::Instant::now() + Duration::from_secs_f64(1. / 60.);
-        result
+        result.map_err(|error| plico_renderer::FrameSourceError::new(error.to_string()))
     }
     fn base_color(&self) -> peniko::Color {
         self.source.base_color()
@@ -111,8 +115,8 @@ impl plico_renderer::FrameSource for Paced {
     fn animation_deadline(&self) -> Option<std::time::Instant> {
         Some(self.next)
     }
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.source.take_host_action()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.source.take_effect()
     }
 }
 fn main() -> Result<(), plico_desktop::DesktopError> {
@@ -121,15 +125,14 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         Paced {
             source: Source::new(Demo::default()),
             next: std::time::Instant::now(),
         },
         WindowOptions::new()
             .title("Plico wgpu damage probe")
-            .initial_inner_size(1280, 800)
-            .renderer(RenderBackend::Wgpu),
+            .initial_inner_size(1280, 800),
     )
 }
 
@@ -139,7 +142,7 @@ mod tests {
     use plico_renderer::FrameSource;
     #[test]
     fn animation_probe_advances_and_requests_real_frames() {
-        let mut ui = plico_desktop::testing::Driver::new(Demo::default(), 720, 640).unwrap();
+        let mut ui = plico_desktop::testing::Tester::new(Demo::default(), 720, 640).unwrap();
         assert!(ui.has_animation());
         let before = ui.view().frames;
         ui.advance(Duration::from_millis(100)).unwrap();
@@ -156,7 +159,7 @@ mod tests {
         let mut scene = plico_renderer::Scene::new();
         for frame in 0..60 {
             clock.advance(Duration::from_millis(16)).unwrap();
-            source.render_retained_frame(&mut scene, &mut text, (720, 500), 1.75);
+            source.render_frame(&mut scene, &mut text, (720, 500), 1.75);
             assert!(source.has_anim(), "frame {frame}");
             assert!(source.view().frames >= frame + 1);
         }

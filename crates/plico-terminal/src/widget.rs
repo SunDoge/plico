@@ -699,16 +699,20 @@ impl Widget for TerminalWidget {
         self.poll_native_events()
     }
 
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.pending_host_actions.pop_front()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.effects.pop()
     }
 
     fn take_node_event(&mut self) -> Option<WidgetNodeEvent> {
         self.pending_node_events.pop_front().map(Into::into)
     }
 
-    fn deliver_clipboard_text(&mut self, request_id: u64, text: Option<String>) {
-        if let Some(formatter) = self.pending_clipboard_loads.remove(&request_id) {
+    fn complete_effect(&mut self, completion: EffectCompletion) {
+        if let Some(formatter) = self.pending_clipboard_loads.remove(&completion.id) {
+            let text = match completion.result {
+                EffectResult::ClipboardText(text) => text,
+                _ => None,
+            };
             self.send_bytes(formatter(text.as_deref().unwrap_or("")).into_bytes());
         }
     }
@@ -738,8 +742,8 @@ impl Widget for TerminalWidget {
             }
             "sync-window-title" => {
                 if self.sync_window_title {
-                    self.pending_host_actions
-                        .push_back(HostAction::SetWindowTitle(None));
+                    self.effects
+                        .push(EffectPayload::window(WindowCommand::RestoreTitle));
                 }
                 self.sync_window_title = false;
             }
@@ -785,8 +789,8 @@ impl Widget for TerminalWidget {
         self.shutdown_pty();
         if self.sync_window_title {
             self.sync_window_title = false;
-            self.pending_host_actions
-                .push_back(HostAction::SetWindowTitle(None));
+            self.effects
+                .push(EffectPayload::window(WindowCommand::RestoreTitle));
         }
     }
 }

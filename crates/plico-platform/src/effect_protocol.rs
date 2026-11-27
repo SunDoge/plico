@@ -3,7 +3,7 @@
 //! This is a Rust wire protocol, not a C ABI.
 
 /// Wire schema version for serialized effect requests and completions.
-pub const EFFECT_PROTOCOL_VERSION: u16 = 8;
+pub const EFFECT_PROTOCOL_VERSION: u16 = 9;
 
 /// Read text from the system clipboard.
 pub const CLIPBOARD_READ: crate::effect::EffectOp = crate::effect::EffectOp::new(1, 1);
@@ -49,3 +49,8 @@ pub const NOTIFICATION_SHOW: crate::effect::EffectOp = crate::effect::EffectOp::
 pub const APPLICATION_EXIT: crate::effect::EffectOp = crate::effect::EffectOp::new(7, 1);
 /// Request orderly shutdown followed by process relaunch.
 pub const APPLICATION_RELAUNCH: crate::effect::EffectOp = crate::effect::EffectOp::new(7, 2);
+
+/// Request an informational window attention indicator.
+pub const WINDOW_REQUEST_ATTENTION: crate::effect::EffectOp = crate::effect::EffectOp::new(2, 10);
+/// Open an external URL through the platform browser handler.
+pub const OPEN_URL: crate::effect::EffectOp = crate::effect::EffectOp::new(8, 1);

@@ -6,7 +6,7 @@
 use kurbo::{Affine, Rect, Stroke};
 use peniko::Color;
 use plico_renderer::{FrameSource, PaintScene, Scene, TextContext, WindowOptions};
-use plico_shell::run_window_with_options;
+use plico_shell::run_window;
 
 struct Overlay;
 
@@ -50,8 +50,8 @@ impl FrameSource for Overlay {
 
 fn main() -> plico_shell::Result<()> {
     println!("Floating overlay: stop with Ctrl-C in this terminal.");
-    run_window_with_options(
-        Box::new(Overlay),
+    run_window(
+        Overlay,
         WindowOptions::floating_overlay()
             .title("Plico floating overlay")
             .initial_inner_size(420, 180)

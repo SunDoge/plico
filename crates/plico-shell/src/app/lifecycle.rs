@@ -126,9 +126,29 @@ impl App {
             force_semantics: false,
             scheduled_frame_deadline: None,
             skipped_present_deadline: None,
+            #[cfg(target_os = "linux")]
+            wayland_clock: crate::frame_pacing::WaylandFrameClock::default(),
             multi_click_settings: None,
-            performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
+            hud_metrics: None,
+            inline_hud: PerformanceHud::inline_from_environment(),
+            #[cfg(feature = "recording")]
+            recording: crate::window_recording::WindowRecording::from_environment(),
         }
+    }
+
+    pub(super) fn create_surface(&mut self, event_loop: &dyn ActiveEventLoop) -> crate::Result<()> {
+        let mut shell = Shell::create(event_loop, &self.window_options)?;
+        if let Some(wake) = self.wake_callback.clone() {
+            shell.observe_native_events(wake);
+            shell.refresh_display_preferences();
+        }
+        self.source.set_gpu_context(shell.gpu_context());
+        let window = shell.window().clone();
+        self.state = Some(shell);
+        self.sync_multi_click_settings();
+        self.sync_window_metrics();
+        window.request_redraw();
+        Ok(())
     }
 
     pub(super) fn set_wake_callback(&mut self, wake: WakeCallback) {
@@ -196,25 +216,7 @@ impl App {
         shell.renderer.configure_text(&mut shell.tcx)?;
         let (w, h) = shell.logical_size();
         let scale = shell.scale_factor();
-        source.set_device_scale(scale);
-        let retained = {
-            #[cfg(feature = "profiling")]
-            let span = tracing::trace_span!(target: "plico::perf", "frame.retained");
-            #[cfg(feature = "profiling")]
-            let _guard = span.enter();
-            let mut phase = crate::telemetry::span("frame", "retained.cpu");
-            phase.attribute("parent", parent);
-            source
-                .render_retained_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
-                .map_err(|source| crate::Error::Frame { source })?
-        };
-        if let Some(timings) = retained {
-            return match shell.tcx.take_native_paragraph_error() {
-                None => Ok(timings),
-                Some(message) => Err(crate::Error::Renderer { message }),
-            };
-        }
-        let (node_count, build_frame_ms, scene_ms) = {
+        let timings = {
             #[cfg(feature = "profiling")]
             let span = tracing::trace_span!(target: "plico::perf", "frame.build");
             #[cfg(feature = "profiling")]
@@ -222,12 +224,12 @@ impl App {
             let mut phase = crate::telemetry::span("frame", "build.cpu");
             phase.attribute("parent", parent);
             source
-                .build_and_paint(&mut shell.scene, &mut shell.tcx, w, h, scale)
+                .render_frame(&mut shell.scene, &mut shell.tcx, (w, h), scale)
                 .map_err(|source| crate::Error::Frame { source })?
         };
         if let Some(message) = shell.tcx.take_native_paragraph_error() {
             return Err(crate::Error::Renderer { message });
         }
-        Ok((node_count, build_frame_ms, scene_ms))
+        Ok(timings)
     }
 }

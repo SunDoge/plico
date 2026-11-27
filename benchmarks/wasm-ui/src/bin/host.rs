@@ -698,8 +698,8 @@ fn main() {
     if std::env::var_os("PLICO_WASM_PROBE_120FPS").is_some() {
         return frame_rate(reader);
     }
-    plico_desktop::run_host_view_with_options(
-        reader,
+    plico_desktop::run_source(
+        plico_desktop::Source::new(reader),
         plico_desktop::WindowOptions::new()
             .title("Plico WASM UI experiment")
             .initial_inner_size(420, 570),

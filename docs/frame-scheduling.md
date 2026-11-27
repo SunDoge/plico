@@ -5,7 +5,7 @@
 
 ## 当前实现
 
-原生 shell 通过 `FrameSource::render_retained_frame` 请求画面。Source 每次采样仍推进注入时钟，检查字体资源、滚动、presence 和宿主动画，然后决定：
+原生 shell 通过 `FrameSource::render_frame` 请求画面。Source 每次采样仍推进注入时钟，检查字体资源、滚动、presence 和宿主动画，然后决定：
 
 - 首帧、尺寸或主题变化、字体设置变化、待处理输入/服务更新、显式 update/request_rebuild，以及应用请求的逻辑动画：执行声明和 settle，提交必要的布局/绘制变化。
 - 无应用失效的表现动画：复用声明，推进 motion/shader/tooltip/theme。需要时更新后端和重新编码场景。

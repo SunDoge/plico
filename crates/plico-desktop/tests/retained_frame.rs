@@ -44,8 +44,7 @@ fn check(page: Page) {
             slow.paint_debug_overlay(&mut left, &nodes, &mut text, 1.);
             let mut right = Scene::new();
             let count = fast
-                .render_retained_frame(&mut right, &mut text, (640, 740), 1.)
-                .unwrap()
+                .render_frame(&mut right, &mut text, (640, 740), 1.)
                 .unwrap()
                 .0;
 
@@ -56,7 +55,7 @@ fn check(page: Page) {
             // materialize the placed list.
             let mut merged = Scene::new();
             let merged_count = combined
-                .build_and_paint(&mut merged, &mut text, 640, 740, 1.)
+                .try_build_and_paint(&mut merged, &mut text, 640, 740, 1.)
                 .unwrap()
                 .0;
             assert_eq!(merged_count, nodes.len());

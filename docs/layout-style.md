@@ -4,7 +4,7 @@
 应用声明目标值，宿主持有动画。普通 Rust 状态和短期借用保持不变：
 
 ```rust
-(ui.column()
+(column(ui)
     .width(if expanded { 480. } else { 240. })
     .height(if expanded { 64. } else { 40. })
     .padding(if expanded { 16 } else { 8 })
@@ -13,7 +13,7 @@
     .opacity(if expanded { 1. } else { 0.75 })
     .background(Color::Literal(if expanded { 0x6352c7 } else { 0x2266bb }))
     .transition(280)).children(|ui| {
-        ui.text("Layout + style").color(Color::Literal(0xffffff));
+        text(ui, "Layout + style").color(Color::Literal(0xffffff));
 })
 ```
 

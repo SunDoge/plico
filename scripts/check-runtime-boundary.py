@@ -5,7 +5,7 @@ The runtime implementation may compose Engine and Adapter directly. Other
 production Rust code should use Source queries/update instead of reaching
 through public retained state.
 Runnable examples and probes use the same stable surface. Integration tests are
-migrated separately to testing::Driver and diagnostics.
+migrated separately to testing::Tester and diagnostics.
 
 Cargo's resolved dependency graph also keeps runtime tests host-independent.
 """

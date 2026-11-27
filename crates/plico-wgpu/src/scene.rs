@@ -45,6 +45,8 @@ pub struct PreparedScene {
     source: Scene,
     flattened: Scene,
     ink: Vec<Option<Rect>>,
+    backdrop_groups: Vec<(usize, Rect, Rect)>,
+    backdrop_shaders: Vec<(usize, plico_renderer::ShaderEffectId, [f32; 4])>,
 }
 /// An isolated source-over or additive group. Children are drawn into a transparent GPU
 /// texture, then alpha/clip are applied once to the completed group.
@@ -55,6 +57,19 @@ pub struct PreparedLayer {
     pub(crate) alpha: f32,
     pub(crate) additive: bool,
     pub(crate) blur: Option<plico_renderer::filter::GaussianBlur>,
+}
+
+impl PreparedLayer {
+    pub(crate) fn backdrop_context_bounds(&self) -> Rect {
+        let output = device_rect(self.quad.rect);
+        self.scene
+            .backdrop_bounds()
+            .map_or(output, |input| input.union(output))
+    }
+}
+
+fn device_rect([x, y, width, height]: [f32; 4]) -> Rect {
+    Rect::new(x as f64, y as f64, (x + width) as f64, (y + height) as f64)
 }
 #[derive(Default)]
 struct Payloads {
@@ -72,6 +87,7 @@ struct PreparedText {
     origin: [f64; 2],
     scale: f64,
     vertical_ratio: f64,
+    text_offset: [f64; 2],
     color: [f32; 4],
     clip: [f32; 4],
     clip_radii: [f32; 4],
@@ -264,13 +280,29 @@ impl PreparedScene {
         tracker: &mut plico_renderer::damage::SceneDamageTracker,
         size: [u32; 2],
     ) -> plico_renderer::DamageRegion {
-        tracker.update_indexed_with_backdrops(
+        tracker.set_isolated_gaussian_damage(true);
+        tracker.update_indexed_with_backdrop_groups(
             &self.flattened,
-            size[0],
-            size[1],
+            size,
             |index, _| self.ink[index],
-            |_, command| match command {
+            |index, command| match command {
                 PaintCommand::Shader { effect, transform } if effect.reads_backdrop() => {
+                    if let Ok(slot) = self
+                        .backdrop_shaders
+                        .binary_search_by_key(&index, |&(i, _, _)| i)
+                    {
+                        let [x, y, width, height] = crate::renderer::backdrop::backdrop_region(
+                            self.backdrop_shaders[slot].2,
+                            effect,
+                            size,
+                        );
+                        return Some(Rect::new(
+                            f64::from(x),
+                            f64::from(y),
+                            f64::from(x + width),
+                            f64::from(y + height),
+                        ));
+                    }
                     let [width, height] = effect.logical_size();
                     Some(backdrop_input_bounds(
                         effect,
@@ -283,6 +315,15 @@ impl PreparedScene {
                     ))
                 }
                 _ => None,
+            },
+            |index| {
+                self.backdrop_groups
+                    .binary_search_by_key(&index, |&(command, _, _)| command)
+                    .ok()
+                    .map(|slot| {
+                        let (_, input, output) = self.backdrop_groups[slot];
+                        (input, output)
+                    })
             },
         )
     }
@@ -302,7 +343,10 @@ impl PreparedScene {
             draws: self.draws.len(),
             order_bytes: self.draws.capacity() * size_of::<PreparedDraw>(),
             payload_bytes: bytes,
-            ink_bytes: self.ink.capacity() * size_of::<Option<Rect>>(),
+            ink_bytes: self.ink.capacity() * size_of::<Option<Rect>>()
+                + self.backdrop_groups.capacity() * size_of::<(usize, Rect, Rect)>()
+                + self.backdrop_shaders.capacity()
+                    * size_of::<(usize, plico_renderer::ShaderEffectId, [f32; 4])>(),
         }
     }
     pub fn draws(&self) -> Vec<Draw<'_>> {
@@ -331,6 +375,7 @@ impl PreparedScene {
                 let mut run = crate::text::TextRun::new(&text.layout, text.origin, text.color);
                 run.scale = text.scale;
                 run.vertical_ratio = text.vertical_ratio;
+                run.text_offset = text.text_offset;
                 run.clip = Some(text.clip);
                 run.clip_radii = text.clip_radii;
                 run.clip_antialias = true;
@@ -734,6 +779,8 @@ impl Renderer {
         let mut draws = Vec::new();
         let mut payloads = Payloads::default();
         let mut ink = vec![None; scene.commands.len()];
+        let mut backdrop_groups = Vec::new();
+        let mut backdrop_shaders = Vec::new();
         let mut skip_until = 0;
         for (index, command) in scene.commands.iter().enumerate() {
             if index < skip_until {
@@ -1115,6 +1162,11 @@ impl Renderer {
                         let end =
                             end.ok_or_else(|| unsupported(index, "unclosed isolated layer"))?;
                         skip_until = end + 1;
+                        // The supported normal compositions leave the parent
+                        // unchanged at zero opacity, even with a child filter.
+                        if *alpha == 0. {
+                            continue;
+                        }
                         let mut child = Scene::new();
                         child
                             .commands
@@ -1184,28 +1236,58 @@ impl Renderer {
                         if let Some(mask) = &composite_mask {
                             draws.push(PreparedDraw::SetMask(mask.clone()));
                         }
-                        let q = quad(
-                            Rect::new(
-                                target_bounds.x0.floor() - reach,
-                                target_bounds.y0.floor() - reach,
-                                target_bounds.x1.ceil() + reach,
-                                target_bounds.y1.ceil() + reach,
-                            ),
-                            [0.; 4],
-                            Affine::IDENTITY,
-                            layer_clip,
-                            index,
-                        )?;
-                        draws.push(layer_draw(
-                            &mut payloads,
-                            PreparedLayer {
-                                scene: child,
-                                quad: q,
-                                alpha: *alpha,
-                                additive: blend.compose != peniko::Compose::SrcOver,
-                                blur,
-                            },
-                        ));
+                        let bounds = Rect::new(
+                            target_bounds.x0.floor() - reach,
+                            target_bounds.y0.floor() - reach,
+                            target_bounds.x1.ceil() + reach,
+                            target_bounds.y1.ceil() + reach,
+                        );
+                        let output_clip = layer_clip.intersect(bounds);
+                        let local_sampling = !child.reads_backdrop()
+                            && blur.is_none_or(|blur| {
+                                blur.edge == plico_renderer::filter::BlurEdge::Transparent
+                            });
+                        let bounds = if local_sampling && blur.is_some() {
+                            let Some(ink) = child.content_bounds() else {
+                                continue;
+                            };
+                            // Transparent edges can only spread submitted ink
+                            // by the kernel radius. Preserve off-clip source
+                            // pixels within that reach and dispatch no work for
+                            // the second, empty halo around an expanded clip.
+                            let active = ink.inflate(reach, reach).expand().intersect(bounds);
+                            if active.is_zero_area() {
+                                continue;
+                            }
+                            active
+                        } else {
+                            bounds
+                        };
+                        // Pool by nearby sizes during animation. Extra pixels
+                        // follow the originally visible area and retain its
+                        // clip. For transparent Gaussian edges they are also
+                        // beyond the original sampling halo.
+                        let padded = if local_sampling {
+                            padded_layer_bounds(bounds, self.layer_texture_limit())
+                        } else {
+                            bounds
+                        };
+                        let q = quad(padded, [0.; 4], Affine::IDENTITY, output_clip, index)?;
+                        let layer = PreparedLayer {
+                            scene: child,
+                            quad: q,
+                            alpha: *alpha,
+                            additive: blend.compose != peniko::Compose::SrcOver,
+                            blur,
+                        };
+                        if layer.scene.reads_backdrop() {
+                            backdrop_groups.push((
+                                index,
+                                layer.backdrop_context_bounds(),
+                                output_clip,
+                            ));
+                        }
+                        draws.push(layer_draw(&mut payloads, layer));
                         draws.push(match parent {
                             Some(mask) => PreparedDraw::SetMask(mask),
                             None => PreparedDraw::ResetMask,
@@ -1380,6 +1462,9 @@ impl Renderer {
                             clip.width() as f32,
                             clip.height() as f32,
                         ]);
+                        if effect.reads_backdrop() {
+                            backdrop_shaders.push((index, effect.id(), q.rect));
+                        }
                         draws.push(PreparedDraw::Effect(stash(
                             &mut payloads.effects,
                             (effect.clone(), q),
@@ -1423,7 +1508,18 @@ impl Renderer {
                             },
                         ));
                     }
-                    PaintCommand::Paragraph { request, transform } => {
+                    PaintCommand::Paragraph { request, transform }
+                    | PaintCommand::MovingParagraph {
+                        request, transform, ..
+                    } => {
+                        #[cfg(all(
+                            any(target_os = "linux", target_os = "windows", target_os = "macos"),
+                            feature = "system-text"
+                        ))]
+                        let text_offset = match command {
+                            PaintCommand::MovingParagraph { offset, .. } => *offset,
+                            _ => [0.; 2],
+                        };
                         #[cfg(all(target_os = "linux", feature = "system-text"))]
                         {
                             let ([scale, sy], origin) = axis_scales(*transform, index)?;
@@ -1434,6 +1530,7 @@ impl Renderer {
                                 origin,
                                 scale: scale / density,
                                 vertical_ratio: sy / scale,
+                                text_offset,
                                 color: request.color.map(|c| c as f32 / 255.),
                                 clip: [
                                     clip.x0 as f32,
@@ -1451,18 +1548,22 @@ impl Renderer {
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let ratio = scale / density;
                             let ry = sy / density;
-                            // Four horizontal phases, snapped vertical baselines.
-                            // Integer movement never creates a new raster entry.
-                            let snapped_x = if ratio == 1. {
-                                (x * 4.).round() / 4.
+                            let (base_x, phase) = if ratio == 1. {
+                                let (base, phase) =
+                                    crate::text_phase::horizontal(x, text_offset[0]);
+                                (base, f64::from(phase) * 0.25)
                             } else {
-                                x
+                                (x, 0.)
                             };
-                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
+                            let base_y = if ry == 1. {
+                                crate::text_phase::vertical(y, text_offset[1])
+                            } else {
+                                y
+                            };
                             let Some(images) = self.windows_paragraph_images(
                                 request.clone(),
                                 density,
-                                snapped_x - base_x,
+                                phase,
                                 |[left, top, right, bottom]| {
                                     // Allow for native coordinate precision,
                                     // grid fitting and pixel snapping.
@@ -1487,8 +1588,7 @@ impl Renderer {
                             let mut bounds: Option<Rect> = None;
                             for (image, origin) in images.iter() {
                                 let left = base_x + f64::from(origin[0]) * ratio;
-                                let top = if ry == 1. { y.round() } else { y }
-                                    + f64::from(origin[1]) * ry;
+                                let top = base_y + f64::from(origin[1]) * ry;
                                 let rect = Rect::new(
                                     left,
                                     top,
@@ -1513,17 +1613,22 @@ impl Renderer {
                             let (request, density) = paragraph_raster(request, scale, index)?;
                             let ratio = scale / density;
                             let ry = sy / density;
-                            let snapped_x = if ratio == 1. {
-                                (x * 4.).round() / 4.
+                            let (base_x, phase) = if ratio == 1. {
+                                let (base, phase) =
+                                    crate::text_phase::horizontal(x, text_offset[0]);
+                                (base, f64::from(phase) * 0.25)
                             } else {
-                                x
+                                (x, 0.)
                             };
-                            let base_x = if ratio == 1. { snapped_x.floor() } else { x };
-                            let base_y = if ry == 1. { y.round() } else { y };
+                            let base_y = if ry == 1. {
+                                crate::text_phase::vertical(y, text_offset[1])
+                            } else {
+                                y
+                            };
                             let paragraph = self.macos_paragraph_images(
                                 request.clone(),
                                 density,
-                                snapped_x - base_x,
+                                phase,
                                 [
                                     (clip.x0 - base_x) / ratio,
                                     (clip.y0 - base_y) / ry,
@@ -1546,9 +1651,9 @@ impl Renderer {
                                 Rect::ZERO
                             } else {
                                 Rect::new(
-                                    snapped_x + bounds[0] * scale,
+                                    base_x + phase + bounds[0] * scale,
                                     base_y + bounds[1] * sy,
-                                    snapped_x + bounds[2] * scale,
+                                    base_x + phase + bounds[2] * scale,
                                     base_y + bounds[3] * sy,
                                 )
                                 .inflate(3., 3.)
@@ -1648,6 +1753,8 @@ impl Renderer {
             source,
             flattened,
             ink,
+            backdrop_groups,
+            backdrop_shaders,
         });
         let storage = prepared.storage_stats();
         tracing::trace!(target:"plico::perf",draws=storage.draws,order_bytes=storage.order_bytes,payload_bytes=storage.payload_bytes,ink_bytes=storage.ink_bytes,"wgpu prepared scene storage");
@@ -1668,6 +1775,23 @@ impl Renderer {
             .push(prepared.clone());
         Ok(prepared)
     }
+}
+
+fn padded_layer_bounds(bounds: Rect, limit: u32) -> Rect {
+    let extent = |size: f64| {
+        if size > f64::from(limit) {
+            return size;
+        }
+        let size = size as u32;
+        let step = if size < 64 { 8 } else { 16 };
+        f64::from((size.div_ceil(step) * step).min(limit))
+    };
+    Rect::new(
+        bounds.x0,
+        bounds.y0,
+        bounds.x0 + extent(bounds.width()),
+        bounds.y0 + extent(bounds.height()),
+    )
 }
 
 impl Renderer {
@@ -1709,33 +1833,49 @@ impl Renderer {
         background: [f32; 4],
         damage: bool,
     ) -> Option<Vec<[u32; 4]>> {
+        let started = tracing::enabled!(target: "plico::perf::damage", tracing::Level::TRACE)
+            .then(std::time::Instant::now);
         if !damage || self.scene_background != Some(background) {
             self.scene_damage.invalidate();
         }
         self.scene_background = Some(background);
         self.scene_damage.set_multi_rect_damage(true);
         let region = prepared.update_damage(&mut self.scene_damage, size);
+        self.backdrop_read_keys.clear();
+        if !prepared.backdrop_shaders.is_empty()
+            && !prepared
+                .flattened
+                .commands
+                .iter()
+                .any(|cmd| matches!(cmd, PaintCommand::ExternalSurface { .. }))
+            && !self.force_backdrop_refresh
+        {
+            let clean = self.scene_damage.unchanged_backdrop_inputs();
+            for &(index, id, _) in &prepared.backdrop_shaders {
+                // A scene fragment can be appended twice with the same ID.
+                // Only an unambiguous reader can use its command index as a key.
+                self.backdrop_read_keys
+                    .entry(id)
+                    .and_modify(|key| *key = None)
+                    .or_insert(Some((index, clean.binary_search(&index).is_ok())));
+            }
+        }
         // Like MyGO's gpu.Part.Set: past half the frame, replaying separate
         // scissors costs more than one full pass (notably while scrolling).
         // Keep the tracker's new history: a full replay still establishes the
         // correct retained target for a later small update or unchanged frame.
-        // Group backdrop inputs can extend outside their output clip. Until
-        // those cross-target dependencies are tracked individually, rebuild
-        // the parent prefix on a changed frame; retain truly unchanged frames.
-        let grouped_backdrop = prepared
-            .payloads
-            .layers
-            .iter()
-            .any(|layer| layer.scene.reads_backdrop());
-        let full_redraw = grouped_backdrop
-            && !matches!(region, plico_renderer::DamageRegion::Empty)
-            || matches!(region, plico_renderer::DamageRegion::Full)
-            || self.scene_damage.damage_rects().coverage(size[0], size[1]) >= 0.5;
-        tracing::trace!(target: "plico::perf",
-            damage_coverage = self.scene_damage.damage_rects().coverage(size[0], size[1]),
-            damage_rect_count = self.scene_damage.damage_rects().rects().len(),
-            full_redraw,
-            "wgpu scene damage");
+        let coverage = self.scene_damage.damage_rects().coverage(size[0], size[1]);
+        let full_redraw = matches!(region, plico_renderer::DamageRegion::Full) || coverage >= 0.5;
+        if let Some(started) = started {
+            tracing::trace!(
+                target: "plico::perf::damage",
+                damage_ms = started.elapsed().as_secs_f64() * 1e3,
+                damage_coverage = coverage,
+                damage_rect_count = self.scene_damage.damage_rects().rects().len(),
+                full_redraw,
+                "wgpu scene damage"
+            );
+        }
         if full_redraw {
             return None;
         }
@@ -2024,6 +2164,8 @@ mod storage_profile {
             source: Scene::new(),
             flattened: Scene::new(),
             ink: Vec::new(),
+            backdrop_groups: Vec::new(),
+            backdrop_shaders: Vec::new(),
         };
         eprintln!(
             "prepared layout: order={} quad={} image={} layer={} effect={}",

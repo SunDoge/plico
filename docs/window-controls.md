@@ -36,7 +36,7 @@ is not certified by this desktop implementation.
 
 At window creation, zero dimensions are normalized to at least one; minimums
 win over conflicting maximums, independently of builder order. Initial sizes
-and restored sizes from `WindowSizePersistence` are clamped to those bounds.
+and restored sizes from `WindowStatePersistence` are clamped to those bounds.
 Old serialized window options default to no maximum and all custom edges.
 These are creation-time options; runtime constraint mutation is not implemented.
 

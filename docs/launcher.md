@@ -60,7 +60,7 @@ fn search(cx: &mut UiContext, query: &TextBuffer) {
 原生 `HostView::on_unhandled_key` 是窗口局部的兜底：先由控件处理，IME 组合及浮层期间不调用。
 demo 用它保证 Tab 到其他控件后 Escape 仍可退出。它不是系统级快捷键注册。
 
-`HostView::take_host_action` 可以发送 `HostAction::Window(WindowCommand::Close)` 等当前窗口命令。
+`HostView::take_effect` 可发送 `EffectPayload::window(WindowCommand::Close)` 等当前窗口命令。
 动作不进入 display tree、Serde 状态或重载快照。宿主在声明结束后也会取出动作，
 因此按钮和输入 response 触发的动作不必等待下一次输入。
 窗口配置复用已有的 `decorations(false)`、`centered(true)`、`window_level(AlwaysOnTop)`。

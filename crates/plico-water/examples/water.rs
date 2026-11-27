@@ -93,7 +93,7 @@ impl HostView for WaterDemo {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (water, surface) = WaterSurface::controlled();
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         SurfaceSource::new(
             WaterDemo {
                 water,

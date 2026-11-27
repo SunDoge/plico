@@ -1,3 +1,4 @@
+use plico::widgets::text_fmt;
 use plico::widgets::{column, text};
 use plico::{Engine, UiContext, component, text};
 
@@ -62,7 +63,7 @@ fn format_arguments_are_consumed_synchronously_and_use_standard_formatting() {
             );
             drop(name);
             plico::text!(cx, "{:?}", [1, 2]);
-            cx.text_fmt(format_args!("literal"));
+            text_fmt(cx, format_args!("literal"));
             plico::widgets::text_fmt(cx, format_args!("{}", ""));
         })
         .unwrap();

@@ -4,7 +4,7 @@ use plico::Theme;
 use plico::prelude::*;
 use plico_runtime::{
     HostView,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 
 #[derive(Default)]
@@ -27,7 +27,7 @@ fn channels(packed: u32) -> [u8; 3] {
     ]
 }
 
-fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
+fn input_border(ui: &Tester<Demo>) -> [u8; 3] {
     let (_, color) = ui
         .placed_nodes()
         .iter()
@@ -40,8 +40,8 @@ fn input_border(ui: &Driver<Demo>) -> [u8; 3] {
 #[test]
 fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     let theme = Theme::default();
-    let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
-    let rest = theme.blend(Color::Border, Color::Foreground, 0.35);
+    let mut ui = Tester::new(Demo::default(), 480, 240).unwrap();
+    let rest = theme.blend(Color::Border, Color::Foreground, 0.28);
     assert_eq!(input_border(&ui), channels(theme.resolve(rest)));
     let fill = ui
         .placed_nodes()
@@ -49,7 +49,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         .find(|node| node.paint.border.is_some())
         .and_then(|node| node.paint.background)
         .expect("the text input keeps a fill");
-    assert_eq!(channels(theme.control), {
+    assert_eq!(channels(theme.panel), {
         let rgba = fill.to_rgba8();
         [rgba.r, rgba.g, rgba.b]
     });
@@ -70,7 +70,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         y: y as f64,
     })
     .unwrap();
-    let hovered = theme.blend(Color::Border, Color::Foreground, 0.45);
+    let hovered = theme.blend(rest, Color::Muted, 0.5);
     assert_eq!(
         input_border(&ui),
         channels(theme.resolve(hovered)),
@@ -92,8 +92,8 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
 
 #[test]
 fn focused_text_input_uses_one_accent_border_without_a_generic_outer_ring() {
-    let mut ui = Driver::new(Demo::default(), 480, 240).unwrap();
-    let input = |ui: &Driver<Demo>| {
+    let mut ui = Tester::new(Demo::default(), 480, 240).unwrap();
+    let input = |ui: &Tester<Demo>| {
         ui.placed_nodes()
             .iter()
             .find(|node| node.paint.border.is_some())

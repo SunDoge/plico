@@ -35,11 +35,10 @@ impl App {
                 }
             }
         }
-        let host_action = self.drain_host_actions();
         let effect =
             self.drain_effects() | self.poll_modal_effects() | self.poll_effect_completions();
-        response.handled |= host_action || effect;
-        response.request_redraw |= host_action || effect;
+        response.handled |= effect;
+        response.request_redraw |= effect;
         if let Some(allowed) = response.text_input {
             self.ime_requested = allowed;
             if allowed {

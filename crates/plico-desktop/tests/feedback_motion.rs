@@ -1,4 +1,5 @@
 use kurbo::Shape;
+use plico::widgets::switch;
 use plico::{UiContext, VirtualClock};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, PaintCommand, SemanticAction, SemanticRole, TextContext};
@@ -11,7 +12,7 @@ struct Feedback {
 impl HostView for Feedback {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.calls += 1;
-        ui.switch("Toggle", &mut self.checked);
+        switch(ui, "Toggle", &mut self.checked);
     }
 }
 fn knob(s: &Source<Feedback>) -> f64 {

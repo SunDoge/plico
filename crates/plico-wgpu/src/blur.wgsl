@@ -31,19 +31,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     // tap loop so each texel only does one multiply and one exp.
     let falloff = -0.5 / (params.sigma * params.sigma);
     let delta = select(vec2i(0, 1), vec2i(1, 0), params.axis == 0u);
+    let center = select(i32(id.y), i32(id.x), params.axis == 0u);
+    let extent = select(size.y, size.x, params.axis == 0u);
     var sum = vec4f(0.);
     var weight = 0.;
     for(var i = -radius; i <= radius; i++) {
         let w = exp(falloff * f32(i * i));
-        var p = vec2i(id.xy) + delta * i;
+        var at = center + i;
         weight += w;
-        if params.edge == 0u && (any(p < vec2i(0)) || any(p >= size)) {
-            continue;
+        if at < 0 || at >= extent {
+            if params.edge == 0u {
+                continue;
+            }
+            at = coordinate(at, extent);
         }
-        if params.edge != 0u {
-            p = vec2i(coordinate(p.x, size.x), coordinate(p.y, size.y));
-        }
-        sum += textureLoad(source, p, 0) * w;
+        sum += textureLoad(source, vec2i(id.xy) + delta * (at - center), 0) * w;
     }
     textureStore(destination, vec2i(id.xy), sum / weight);
 }

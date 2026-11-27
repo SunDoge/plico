@@ -1,371 +1,209 @@
-//! Window-only renderer dispatch; event/IME/layout code stays in the shared shell.
+//! Own the wgpu surface attached to a native window.
 use peniko::Color;
-use plico_renderer::{RenderBackend, Scene};
-use std::sync::Arc;
+use plico_renderer::{FrameBudgetSample, Scene, TextContext, WakeCallback, source::GpuContext};
+use std::{sync::Arc, time::Instant};
 use winit::window::Window;
 
-pub(crate) enum WindowRenderer {
+pub(crate) struct WindowRenderer {
     #[cfg(feature = "wgpu")]
-    Wgpu {
-        active: Option<Box<plico_wgpu::WgpuWindow>>,
-        transparent: bool,
-    },
-    #[allow(dead_code)]
-    Unavailable,
+    surface: Box<plico_wgpu::WgpuWindow>,
 }
+
+#[cfg_attr(not(feature = "wgpu"), allow(unused_variables))]
 impl WindowRenderer {
-    pub(crate) fn gpu_context(&self) -> Option<plico_renderer::source::GpuContext> {
+    pub(crate) fn new(
+        window: Arc<dyn Window>,
+        transparent: bool,
+        width: u32,
+        height: u32,
+    ) -> crate::Result<Self> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return Some(renderer.gpu_context());
+            #[cfg(target_os = "linux")]
+            let opened = plico_wgpu::WgpuWindow::new_with_wayland_clock(window, transparent);
+            #[cfg(not(target_os = "linux"))]
+            let opened = plico_wgpu::WgpuWindow::new(window, transparent);
+            let mut surface = opened.map_err(renderer_error)?;
+            surface.resize(width, height);
+            Ok(Self {
+                surface: Box::new(surface),
+            })
         }
+        #[cfg(not(feature = "wgpu"))]
+        Err(wgpu_required())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn uses_wayland_clock(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        return self.surface.uses_wayland_clock();
+        #[cfg(not(feature = "wgpu"))]
+        false
+    }
+
+    pub(crate) fn gpu_context(&self) -> Option<GpuContext> {
+        #[cfg(feature = "wgpu")]
+        {
+            Some(self.surface.gpu_context())
+        }
+        #[cfg(not(feature = "wgpu"))]
         None
     }
 
     pub(crate) fn defers_initial_show(&self) -> bool {
-        #[cfg(all(target_os = "macos", feature = "wgpu"))]
-        {
-            matches!(
-                self,
-                Self::Wgpu {
-                    active: Some(_),
-                    ..
-                }
-            )
-        }
-        #[cfg(not(all(target_os = "macos", feature = "wgpu")))]
-        {
-            false
-        }
+        cfg!(all(target_os = "macos", feature = "wgpu"))
     }
-    pub(crate) fn render_initial(
-        &mut self,
-        scene: &mut Scene,
-        width: u32,
-        height: u32,
-        color: Color,
-    ) -> crate::Result<bool> {
+
+    pub(crate) fn configure_text(&mut self, text: &mut TextContext) -> crate::Result<()> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            renderer.resize(width, height);
-            return renderer
-                .present_initial(scene, color)
-                .map_err(|e| crate::Error::Renderer {
-                    message: e.to_string(),
-                });
+            self.surface.configure_text(text).map_err(renderer_error)
         }
-        self.render(scene, width, height, color)
+        #[cfg(not(feature = "wgpu"))]
+        Err(wgpu_required())
     }
-    pub(crate) fn configure_text(
-        &mut self,
-        _text: &mut plico_renderer::TextContext,
-    ) -> crate::Result<()> {
+
+    pub(crate) fn damage_coverage(&self) -> Option<f64> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            renderer
-                .configure_text(_text)
-                .map_err(|e| crate::Error::Renderer {
-                    message: e.to_string(),
-                })?;
+            Some(self.surface.last_damage_coverage())
         }
-        Ok(())
+        #[cfg(not(feature = "wgpu"))]
+        None
     }
-    pub(crate) fn damage_coverage(&self, _width: u32, _height: u32) -> Option<f64> {
-        match self {
-            Self::Unavailable => None,
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu {
-                active: Some(renderer),
-                ..
-            } => Some(renderer.last_damage_coverage()),
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu { active: None, .. } => None,
+
+    pub(crate) fn frame_budget(&self) -> Option<FrameBudgetSample> {
+        #[cfg(feature = "wgpu")]
+        {
+            Some(self.surface.frame_budget())
         }
+        #[cfg(not(feature = "wgpu"))]
+        None
     }
-    /// Renderer CPU stages and GPU time for the last submitted frame.
-    pub(crate) fn frame_budget(&self) -> Option<plico_renderer::FrameBudgetSample> {
-        match self {
-            Self::Unavailable => None,
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu {
-                active: Some(renderer),
-                ..
-            } => {
-                let budget = renderer.frame_budget();
-                Some(plico_renderer::FrameBudgetSample {
-                    prepare_ms: budget.prepare_ms,
-                    upload_ms: budget.upload_ms,
-                    encode_ms: budget.encode_ms,
-                    submit_ms: budget.submit_ms,
-                    submissions: budget.submissions,
-                    command_buffers: budget.command_buffers,
-                    wait_ms: budget.wait_ms,
-                    gpu_ms: budget.gpu_ms,
-                    upload_bytes: budget.upload_bytes,
-                    instances: budget.instances,
-                    draw_calls: budget.draw_calls,
-                    passes: budget.passes,
-                    layer_bytes: budget.layer_bytes,
-                    effect_bytes: budget.effect_bytes,
-                    backdrop_copies: budget.backdrop_copies,
-                    backdrop_mip_passes: budget.backdrop_mip_passes,
-                    backdrop_bytes: budget.backdrop_bytes,
-                    backdrop_textures: budget.backdrop_textures,
-                    backdrop_shared_reads: budget.backdrop_shared_reads,
-                    backdrop_effect_pixels: budget.backdrop_effect_pixels,
-                })
-            }
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu { active: None, .. } => None,
-        }
-    }
-    #[cfg_attr(not(feature = "wgpu"), allow(unused_variables))]
-    pub(crate) fn new(backend: RenderBackend, transparent: bool) -> crate::Result<Self> {
-        match backend {
-            RenderBackend::Auto => {
-                #[cfg(feature = "wgpu")]
-                {
-                    Self::new(RenderBackend::Wgpu, transparent)
-                }
-                #[cfg(not(feature = "wgpu"))]
-                {
-                    Err(crate::Error::Renderer {
-                        message: "no renderer enabled".into(),
-                    })
-                }
-            }
-            RenderBackend::Wgpu => {
-                #[cfg(feature = "wgpu")]
-                {
-                    Ok(Self::Wgpu {
-                        active: None,
-                        transparent,
-                    })
-                }
-                #[cfg(not(feature = "wgpu"))]
-                {
-                    Err(crate::Error::Renderer {
-                        message: "wgpu requires plico-shell's wgpu feature".into(),
-                    })
-                }
-            }
-        }
-    }
-    #[cfg_attr(not(feature = "wgpu"), allow(unused_variables))]
-    pub(crate) fn resume(
-        &mut self,
-        window: Arc<dyn Window>,
-        width: u32,
-        height: u32,
-    ) -> crate::Result<()> {
-        match self {
-            Self::Unavailable => {}
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu {
-                active,
-                transparent,
-            } => {
-                let mut renderer =
-                    plico_wgpu::WgpuWindow::new(window, *transparent).map_err(|e| {
-                        crate::Error::Renderer {
-                            message: e.to_string(),
-                        }
-                    })?;
-                renderer.resize(width, height);
-                *active = Some(Box::new(renderer));
-            }
-        }
-        Ok(())
-    }
-    #[cfg_attr(not(feature = "wgpu"), allow(unused_variables))]
+
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        match self {
-            Self::Unavailable => {}
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu {
-                active: Some(renderer),
-                ..
-            } => renderer.resize(width, height),
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu { active: None, .. } => {}
-        }
+        #[cfg(feature = "wgpu")]
+        self.surface.resize(width, height);
     }
+
     #[cfg(target_os = "macos")]
     pub(crate) fn set_presentation_clock(
         &mut self,
-        tick: Option<(u64, Option<std::time::Instant>)>,
+        tick: Option<(u64, Option<Instant>)>,
         interval: std::time::Duration,
     ) {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            renderer.set_presentation_clock(
-                tick.map(|(serial, observed_at)| plico_wgpu::PresentationTick {
-                    serial,
-                    observed_at,
-                }),
-                interval,
-            );
-        }
-        #[cfg(not(feature = "wgpu"))]
-        let _ = (tick, interval);
+        self.surface.set_presentation_clock(
+            tick.map(|(serial, observed_at)| plico_wgpu::PresentationTick {
+                serial,
+                observed_at,
+            }),
+            interval,
+        );
     }
+
     pub(crate) fn presentation_deferred(&self) -> bool {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return renderer.presentation_deferred();
+            self.surface.presentation_deferred()
         }
+        #[cfg(not(feature = "wgpu"))]
         false
     }
-    pub(crate) fn presentation_deadline(&self) -> Option<std::time::Instant> {
+
+    pub(crate) fn presentation_deadline(&self) -> Option<Instant> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return renderer.presentation_deadline();
+            self.surface.presentation_deadline()
         }
+        #[cfg(not(feature = "wgpu"))]
         None
     }
+
     pub(crate) fn surface_acquire_pending(&self) -> bool {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return renderer.surface_acquire_pending();
+            self.surface.surface_acquire_pending()
         }
+        #[cfg(not(feature = "wgpu"))]
         false
     }
+
     pub(crate) fn present_skipped(&self) -> bool {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return renderer.last_present_skipped();
+            self.surface.last_present_skipped()
         }
+        #[cfg(not(feature = "wgpu"))]
         false
     }
+
     pub(crate) fn invalidate_presentation(&mut self) {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            renderer.invalidate_presentation();
-        }
+        self.surface.invalidate_presentation();
     }
-    pub(crate) fn set_surface_wake(&mut self, wake: plico_renderer::WakeCallback) {
+
+    pub(crate) fn set_surface_wake(&mut self, wake: WakeCallback) {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            renderer.set_surface_wake(wake);
-            return;
-        }
-        let _ = wake;
+        self.surface.set_surface_wake(wake);
     }
+
     pub(crate) fn take_surface_ready(&self) -> bool {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            return renderer.take_surface_ready();
+            self.surface.take_surface_ready()
         }
+        #[cfg(not(feature = "wgpu"))]
         false
     }
+
     pub(crate) fn prepare_hide(&mut self) {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            renderer.prepare_hide();
-        }
+        self.surface.prepare_hide();
     }
-    pub(crate) fn maintain(&mut self, now: std::time::Instant) -> Option<std::time::Instant> {
+
+    pub(crate) fn maintain(&mut self, now: Instant) -> Option<Instant> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            renderer.maintain(now);
-            return renderer.maintenance_deadline();
+            self.surface.maintain(now);
+            self.surface.maintenance_deadline()
         }
-        let _ = now;
+        #[cfg(not(feature = "wgpu"))]
         None
     }
+
     pub(crate) fn trim_gpu_cache(&mut self) {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
-        {
-            renderer.trim_gpu_cache();
-        }
+        self.surface.trim_gpu_cache();
     }
-    #[cfg_attr(not(feature = "wgpu"), allow(unused_variables))]
-    pub(crate) fn render(
+
+    pub(crate) fn present(
         &mut self,
         scene: &mut Scene,
-        width: u32,
-        height: u32,
         color: Color,
+        first_show: bool,
     ) -> crate::Result<bool> {
-        match self {
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu {
-                active: Some(renderer),
-                ..
-            } => {
-                renderer.resize(width, height);
-                renderer
-                    .present(scene, color)
-                    .map_err(|e| crate::Error::Renderer {
-                        message: e.to_string(),
-                    })
-            }
-            #[cfg(feature = "wgpu")]
-            Self::Wgpu { active: None, .. } => Ok(false),
-            Self::Unavailable => Err(crate::Error::Renderer {
-                message: "no renderer enabled".into(),
-            }),
+        #[cfg(feature = "wgpu")]
+        {
+            let result = if first_show {
+                self.surface.present_initial(scene, color)
+            } else {
+                self.surface.present(scene, color)
+            };
+            result.map_err(renderer_error)
         }
+        #[cfg(not(feature = "wgpu"))]
+        Err(wgpu_required())
     }
-}
 
-impl WindowRenderer {
+    #[cfg(feature = "recording")]
+    pub(crate) fn copy_retained_frame(
+        &self,
+        reuse: Option<plico_wgpu::RetainedFrameReadback>,
+    ) -> Option<plico_wgpu::RetainedFrameReadback> {
+        self.surface.copy_retained_frame(reuse)
+    }
+
     pub(crate) fn capture(
         &mut self,
         scene: &Scene,
@@ -374,40 +212,30 @@ impl WindowRenderer {
         color: Color,
     ) -> crate::Result<image::RgbaImage> {
         #[cfg(feature = "wgpu")]
-        if let Self::Wgpu {
-            active: Some(renderer),
-            ..
-        } = self
         {
-            let mut pixels = renderer
+            let mut pixels = self
+                .surface
                 .capture_rgba(scene, [width, height], color)
-                .map_err(|e| crate::Error::Renderer {
-                    message: e.to_string(),
-                })?;
+                .map_err(renderer_error)?;
             crate::renderer::unpremultiply(&mut pixels);
-            return image::RgbaImage::from_raw(width, height, pixels)
-                .ok_or(crate::Error::InvalidImageBuffer { width, height });
+            image::RgbaImage::from_raw(width, height, pixels)
+                .ok_or(crate::Error::InvalidImageBuffer { width, height })
         }
-        crate::renderer::render_to_image(scene, width, height, color)
+        #[cfg(not(feature = "wgpu"))]
+        Err(wgpu_required())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn automatic_backend_prefers_enabled_renderer() {
-        let result = WindowRenderer::new(RenderBackend::Auto, true);
-        #[cfg(feature = "wgpu")]
-        assert!(matches!(result, Ok(WindowRenderer::Wgpu { .. })));
-        #[cfg(not(feature = "wgpu"))]
-        assert!(result.is_err());
+#[cfg(feature = "wgpu")]
+fn renderer_error(error: plico_wgpu::Error) -> crate::Error {
+    crate::Error::Renderer {
+        message: error.to_string(),
     }
+}
 
-    #[test]
-    #[cfg(not(feature = "wgpu"))]
-    fn explicit_wgpu_reports_missing_feature() {
-        assert!(WindowRenderer::new(RenderBackend::Wgpu, false).is_err());
+#[cfg(not(feature = "wgpu"))]
+fn wgpu_required() -> crate::Error {
+    crate::Error::Renderer {
+        message: "wgpu requires plico-shell's wgpu feature".into(),
     }
 }

@@ -49,7 +49,7 @@ fn main() -> Result<(), plico_desktop::DesktopError> {
         count: 0,
         editor: Default::default(),
     });
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         ZoomSource::with_controller(Box::new(source), zoom),
         WindowOptions::new()
             .title("Plico gallery · Window zoom")

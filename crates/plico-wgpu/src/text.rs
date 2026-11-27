@@ -17,6 +17,7 @@ pub struct TextRun<'a> {
     /// Default false: four horizontal phases and pixel-snapped vertical placement.
     /// True permits continuous bitmap movement, at the cost of sampling softness.
     pub continuous: bool,
+    pub(crate) text_offset: [f64; 2],
 }
 impl<'a> TextRun<'a> {
     pub fn new(layout: &'a GlyphLayout, origin: [f64; 2], color: [f32; 4]) -> Self {
@@ -30,6 +31,7 @@ impl<'a> TextRun<'a> {
             clip_radii: [0.; 4],
             clip_antialias: false,
             continuous: false,
+            text_offset: [0.; 2],
         }
     }
 }

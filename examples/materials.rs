@@ -40,5 +40,8 @@ impl plico_dev::App for Demo {
     }
 }
 fn main() -> Result<(), plico_desktop::DesktopError> {
-    plico_desktop::run(Demo::default(), "Plico materials")
+    plico_desktop::run(
+        Demo::default(),
+        plico_desktop::WindowOptions::new().title("Plico materials"),
+    )
 }

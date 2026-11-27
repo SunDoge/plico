@@ -130,7 +130,7 @@ fn run() -> Result<(), Error> {
             std::sync::Arc::new(clock.clone()),
         );
         let mut source = plico_desktop::SurfaceSource::new(
-            gallery::images::GalleryHost { app },
+            gallery::images::GalleryHost::new(app),
             widget,
             "image-preview",
         );

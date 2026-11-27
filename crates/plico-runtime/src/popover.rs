@@ -3,7 +3,7 @@ use super::*;
 use crate::popup_motion::{PopupMotion, smoothstep};
 use crate::shader::{PopupOptics, SurfacePose};
 use plico_renderer::layout::PlacedNode;
-use plico_renderer::style::CornerRadii;
+use plico_renderer::style::{CornerRadii, MotionTransform};
 // MyGO's ui/runtime.go repaintFrame reuses laid-out elements when only
 // their pose or draw callbacks change (reference revision f651b106).
 pub(super) struct PopupPlacement {
@@ -106,11 +106,19 @@ impl Adapter {
             let liquid = engine.node(root).unwrap().style.liquid_popup;
             let centered = engine.node(root).unwrap().style.popup_over_anchor;
             let gap = if liquid { 12. } else { 6. };
-            let below = (height as f32 - 8. - anchor[3] - gap).max(0.);
-            let above = (anchor[1] - 8. - gap).max(0.);
-            let flip = panel_height > below && above > below;
+            // As in MyGO ui/layout.go (MIT, d8286ea9), constrain the panel
+            // itself even when an inner child owns scrolling.
+            let horizontal_edge = 8f32.min(width as f32 / 2.);
+            let vertical_edge = 8f32.min(height as f32 / 2.);
+            let top = vertical_edge;
+            let bottom = height as f32 - vertical_edge;
+            let upper_attachment = (anchor[1] - gap).clamp(top, bottom);
+            let lower_attachment = (anchor[3] + gap).clamp(top, bottom);
+            let below = bottom - lower_attachment;
+            let above = upper_attachment - top;
+            let flip = !centered && panel_height > below && above > below;
             let available = if centered {
-                (height as f32 - 16.).max(0.)
+                bottom - top
             } else if flip {
                 above
             } else {
@@ -125,20 +133,20 @@ impl Adapter {
                 anchor[0]
             })
             .clamp(
-                8f32.min(width as f32 / 2.),
-                (width as f32 - 8. - panel_width).max(8f32.min(width as f32 / 2.)),
+                horizontal_edge,
+                (width as f32 - horizontal_edge - panel_width).max(horizontal_edge),
             );
+            let shown_height = panel_height.min(available);
             let y = if centered {
-                ((anchor[1] + anchor[3] - panel_height) * 0.5)
-                    .clamp(8., (height as f32 - 8. - panel_height).max(8.))
+                ((anchor[1] + anchor[3] - shown_height) * 0.5).clamp(top, bottom - shown_height)
             } else if flip {
-                anchor[1] - gap - panel_height.min(available)
+                upper_attachment - shown_height
             } else {
-                anchor[3] + gap
+                lower_attachment
             };
             let mut style = self.tree.style(id).unwrap().clone();
             style.inset.left = length(x);
-            style.inset.top = length(y.clamp(0., height as f32));
+            style.inset.top = length(y);
             style.max_size.height = length(
                 available.min(
                     engine
@@ -205,9 +213,9 @@ impl Adapter {
         self.effect_poses.clear();
         self.popup_motion_active = false;
         self.popup_motions.retain(|entity, _| {
-            engine
-                .node(*entity)
-                .is_some_and(|popup| popup.style.popup_motion)
+            engine.node(*entity).is_some_and(|popup| {
+                popup.style.popup_motion || popup.style.liquid_popup && popup.style.modal_open
+            })
         });
         let mut changed = Vec::new();
         let mut paint_poses = Vec::new();
@@ -215,6 +223,19 @@ impl Adapter {
             let Some(popup) = engine.node(placement.root) else {
                 continue;
             };
+            let popup_style = popup.style;
+            let centered = popup_style.popup_over_anchor;
+            if !popup_style.popup_motion {
+                if popup_style.liquid_popup && popup_style.modal_open {
+                    // The opaque/reduced-motion fallback is already visible at
+                    // its destination. Switching back to glass must keep that pose.
+                    self.popup_motions.insert(
+                        placement.root,
+                        PopupMotion::open_at_rest(centered, engine.time().now),
+                    );
+                }
+                continue;
+            }
             let Some(face) = placement.face else {
                 continue;
             };
@@ -230,11 +251,6 @@ impl Adapter {
             let panel_width = right - x;
             let shown_height = bottom - y;
             let flip = placement.flip;
-            let popup_style = popup.style;
-            if !popup_style.popup_motion {
-                continue;
-            }
-            let centered = popup_style.popup_over_anchor;
             let motion = self
                 .popup_motions
                 .entry(placement.root)
@@ -487,12 +503,22 @@ impl Adapter {
             transform[5] += dy;
             Some(transform)
         };
+        let motion_transform = match declared.motion_transform {
+            MotionTransform::None if dy != 0. => MotionTransform::RestingTranslation(
+                declared.runtime_transform.map_or([0.; 2], |m| [m[4], m[5]]),
+            ),
+            motion => motion,
+        };
         let paint = &mut self.placed[index].paint;
-        if paint.opacity == opacity && paint.runtime_transform == transform {
+        if paint.opacity == opacity
+            && paint.runtime_transform == transform
+            && paint.motion_transform == motion_transform
+        {
             return false;
         }
         paint.opacity = opacity;
         paint.runtime_transform = transform;
+        paint.motion_transform = motion_transform;
         true
     }
 

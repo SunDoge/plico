@@ -2,8 +2,7 @@
 //! previews, never shell commands. Native buffers and host actions are not serialized.
 pub mod icons;
 use plico::{InputEdit, prelude::*};
-use plico_desktop::{HostAction, HostView, WindowCommand};
-use std::collections::VecDeque;
+use plico_desktop::{EffectPayload, EffectQueue, EffectRequest, HostView, WindowCommand};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum Category {
@@ -130,7 +129,7 @@ struct LauncherModel {
     reveal: Option<usize>,
     focus_search: bool,
     feedback: String,
-    actions: VecDeque<HostAction>,
+    effects: EffectQueue,
 }
 impl LauncherModel {
     fn new() -> Self {
@@ -181,8 +180,8 @@ impl LauncherModel {
                 self.query.clear();
                 self.refresh();
             } else {
-                self.actions
-                    .push_back(HostAction::Window(WindowCommand::Close));
+                self.effects
+                    .push(EffectPayload::window(WindowCommand::Close));
             }
             return;
         }
@@ -222,9 +221,10 @@ impl LauncherModel {
                 self.query.clear();
                 self.refresh();
             }
-            Action::Close => self
-                .actions
-                .push_back(HostAction::Window(WindowCommand::Close)),
+            Action::Close => {
+                self.effects
+                    .push(EffectPayload::window(WindowCommand::Close));
+            }
         }
         self.focus_search = true;
     }
@@ -332,7 +332,7 @@ fn search(cx: &mut UiContext, model: &mut LauncherModel) {
             icon(cx, &icons::X).size(16., 16.).color(Color::Muted);
         }).response;
         if close.clicked() {
-            model.actions.push_back(HostAction::Window(WindowCommand::Close));
+            model.effects.push(EffectPayload::window(WindowCommand::Close));
         }
     };
 }
@@ -425,8 +425,8 @@ impl HostView for Launcher {
             false
         }
     }
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        self.model.actions.pop_front()
+    fn take_effect(&mut self) -> Option<EffectRequest> {
+        self.model.effects.pop()
     }
     fn theme(&self) -> Theme {
         if self.dark() {

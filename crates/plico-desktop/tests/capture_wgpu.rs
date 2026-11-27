@@ -1,6 +1,6 @@
 #![cfg(all(feature = "wgpu", target_os = "linux"))]
 use plico::prelude::*;
-use plico_desktop::{HostView, PreviewScenario, RenderBackend, capture};
+use plico_desktop::{CaptureOptions, CaptureSession, HostView, PreviewScenario, capture};
 use plico_renderer::{FrameSource, TextContext, layout::PlacedNode};
 use std::{cell::Cell, rc::Rc};
 
@@ -34,7 +34,7 @@ fn wgpu_preview_replays_seeded_actions_and_virtual_clock_repeatably() {
         let observed = Rc::new(Cell::new((0, 0)));
         let scenario: PreviewScenario<Fixture> = serde_json::from_str(json).unwrap();
         let image = scenario
-            .render_with_backend(RenderBackend::Wgpu, |state| Demo {
+            .render(|state| Demo {
                 count: state.count,
                 observed: observed.clone(),
             })
@@ -76,12 +76,14 @@ impl FrameSource for Empty {
 #[test]
 #[ignore = "requires a working wgpu adapter"]
 fn wgpu_capture_preserves_premultiplied_pixels_and_writes_straight_alpha_png() {
-    let image = capture(&mut Empty)
-        .renderer(RenderBackend::Wgpu)
-        .size(80, 40)
-        .scale(1.25)
-        .render()
-        .unwrap();
+    let image = capture(
+        &mut Empty,
+        CaptureOptions {
+            scale: 1.25,
+            ..CaptureOptions::new(80, 40)
+        },
+    )
+    .unwrap();
     assert_eq!((image.width(), image.height()), (100, 50));
     assert!(
         image
@@ -99,7 +101,44 @@ fn wgpu_capture_preserves_premultiplied_pixels_and_writes_straight_alpha_png() {
 }
 #[test]
 fn capture_rejects_invalid_size_without_silent_fallback() {
-    assert!(capture(&mut Empty).size(0, 40).render().is_err());
+    let mut session = CaptureSession::default();
+    assert!(
+        session
+            .render(&mut Empty, CaptureOptions::new(0, 40))
+            .is_err()
+    );
+    assert!(session.adapter_name().is_none());
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn capture_session_reuses_resources_across_fractional_scales_and_invalid_input() {
+    let mut session = CaptureSession::default();
+    let options = CaptureOptions::new(80, 40);
+    let first = session.render(&mut Empty, options).unwrap();
+    let scaled = session
+        .render(
+            &mut Empty,
+            CaptureOptions {
+                scale: 1.5,
+                ..options
+            },
+        )
+        .unwrap();
+    assert_eq!((scaled.width(), scaled.height()), (120, 60));
+    assert!(
+        session
+            .render(
+                &mut Empty,
+                CaptureOptions {
+                    scale: f64::NAN,
+                    ..options
+                }
+            )
+            .is_err()
+    );
+    assert_eq!(session.render(&mut Empty, options).unwrap(), first);
+    assert!(session.last_frame_budget().is_some());
 }
 
 #[test]
@@ -119,7 +158,7 @@ fn wgpu_preview_captures_a_hosted_image_canvas_with_the_same_backend() {
     let scenario: PreviewScenario<()> =
         serde_json::from_str(r#"{"viewport":{"width":100,"height":100,"scale":1.25}}"#).unwrap();
     let image = scenario
-        .render_source_with_backend(RenderBackend::Wgpu, |(), clock| {
+        .render_source(|(), clock| {
             let state = ImageCanvasState::default();
             state.set_document(
                 Some(Arc::new(RasterImage::from_rgba(

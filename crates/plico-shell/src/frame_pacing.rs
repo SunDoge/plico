@@ -1,8 +1,7 @@
-//! Shared display-link handshake; no UI declarations or native resources.
-use std::{
-    cell::Cell,
-    time::{Duration, Instant},
-};
+//! Display scheduling state without UI declarations or native resources.
+#[cfg(any(target_os = "macos", test))]
+use std::cell::Cell;
+use std::time::{Duration, Instant};
 
 /// The callback's target span is the actual CADisplayLink interval, unlike
 /// `duration` on variable-rate displays. Never mix its epoch with Instant.
@@ -15,6 +14,7 @@ pub(crate) fn display_interval(timestamp: f64, target: f64, nominal: f64) -> Dur
         .expect("the fixed fallback is positive and finite")
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 pub(crate) struct FramePacer {
     requested: Cell<bool>,
@@ -22,11 +22,13 @@ pub(crate) struct FramePacer {
     running: Cell<bool>,
     last_frame: Cell<Option<Instant>>,
 }
+#[cfg(any(target_os = "macos", test))]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Tick {
     Ready,
     Pause,
 }
+#[cfg(any(target_os = "macos", test))]
 impl FramePacer {
     /// Returns (a tick is ready, the native link needs starting).
     pub fn request(&self, now: Instant, refresh: Duration) -> (bool, bool) {
@@ -61,6 +63,88 @@ impl FramePacer {
     pub fn consume(&self, now: Instant) {
         self.last_frame.set(Some(now));
         self.ready.set(false);
+    }
+}
+
+/// Wayland redraw events renew drawing permission. While that permission is
+/// fresh, the output interval can schedule the next frame before a delayed
+/// compositor callback arrives. Without a redraw event the clock expires.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+pub(crate) struct WaylandFrameClock {
+    redraw_event: Option<Instant>,
+    next_frame: Option<Instant>,
+    interval: Duration,
+}
+
+#[cfg(target_os = "linux")]
+impl WaylandFrameClock {
+    pub fn observe_redraw(&mut self, now: Instant) {
+        self.redraw_event = Some(now);
+    }
+
+    pub fn can_draw(&self, now: Instant) -> bool {
+        self.redraw_event
+            .is_some_and(|event| now.saturating_duration_since(event) < self.interval * 4)
+    }
+
+    pub fn deadline(&self) -> Option<Instant> {
+        self.next_frame
+    }
+
+    pub fn advance(&mut self, started: Instant, interval: Duration) {
+        let deadline = self.next_frame.filter(|deadline| {
+            self.interval == interval
+                && *deadline <= started
+                && started.duration_since(*deadline) < interval
+        });
+        self.interval = interval;
+        self.next_frame = Some(deadline.unwrap_or(started) + interval);
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn wayland_clock_tracks_the_monitor_and_expires_without_redraws() {
+    let mut clock = WaylandFrameClock::default();
+    let now = Instant::now();
+    let interval = Duration::from_millis(16);
+    assert!(!clock.can_draw(now));
+    clock.observe_redraw(now);
+    clock.advance(now, interval);
+    assert_eq!(clock.deadline(), Some(now + interval));
+    assert!(clock.can_draw(now + interval));
+    assert!(!clock.can_draw(now + interval * 4));
+    clock.advance(now + interval + Duration::from_millis(2), interval);
+    assert_eq!(clock.deadline(), Some(now + interval * 2));
+    let moved = now + interval * 6;
+    let faster = interval / 2;
+    clock.observe_redraw(moved);
+    clock.advance(moved, faster);
+    assert_eq!(clock.deadline(), Some(moved + faster));
+    assert!(clock.can_draw(moved + faster));
+    clock.reset();
+    assert!(clock.deadline().is_none());
+    assert!(!clock.can_draw(moved + faster));
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[test]
+fn wayland_clock_does_not_limit_high_refresh_outputs_to_sixty_hz() {
+    for hz in [120., 240.] {
+        let interval = Duration::from_secs_f64(1. / hz);
+        let mut clock = WaylandFrameClock::default();
+        let now = Instant::now();
+        for frame in 0..10 {
+            let started = now + interval * frame;
+            clock.observe_redraw(started);
+            clock.advance(started, interval);
+            assert_eq!(clock.deadline(), Some(started + interval));
+        }
     }
 }
 

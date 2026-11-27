@@ -13,6 +13,7 @@ linux-bundled-freetype = ["system-text", "plico-native/linux-bundled-freetype"]
 vulkan-dmabuf = ["dep:wgpu-dmabuf"]
 web = ["wgpu/webgl", "dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:unicode-segmentation"]
 window = ["surface", "dep:winit"]
+recording = ["surface"]
 surface = ["dep:dpi", "dep:raw-window-handle", "dep:objc2", "dep:objc2-core-foundation", "dep:block2", "dep:objc2-app-kit", "dep:objc2-quartz-core"]
 
 [target.'cfg(target_os = "linux")'.dependencies]

@@ -19,9 +19,9 @@ pub use color::RgbaColor;
 pub use effect::{
     CapabilityId, ClipboardContent, ClipboardImage, ContextMenuItem, ContextMenuRequest,
     DialogFilter, EFFECT_PROTOCOL_VERSION, EffectCompletion, EffectDispatch, EffectErrorCode,
-    EffectExecutor, EffectId, EffectOp, EffectPayload, EffectRequest, EffectResult, EffectScope,
-    EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel, MessageDialogRequest,
-    MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,
+    EffectExecutor, EffectId, EffectOp, EffectPayload, EffectQueue, EffectRequest, EffectResult,
+    EffectScope, EffectTapeEntry, MenuPosition, MessageDialogButtons, MessageDialogLevel,
+    MessageDialogRequest, MethodId, NotificationRequest, OpenDialogRequest, PickDirectoryRequest,
     RecordingEffectExecutor, ReplayEffectExecutor, SaveDialogRequest, WindowCreateRequest,
     WindowResourceKey, initial_window_resource_key,
 };
@@ -32,8 +32,7 @@ pub use floating::{
 };
 pub use service::{HostService, HostServiceContext};
 pub use window::{
-    RenderBackend, WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions,
-    WindowResizeEdges,
+    WindowBackground, WindowCommand, WindowInputMode, WindowLevel, WindowOptions, WindowResizeEdges,
 };
 pub use window_lifecycle::{
     WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,

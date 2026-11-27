@@ -1045,7 +1045,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         let mut scene = Scene::new();
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         let size = [(320. * scale) as u32, (100. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
@@ -1059,7 +1059,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         assert!(source.handle_event(UiEvent::Paste(value.into())).handled);
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         let mut oracle = pollster::block_on(Renderer::new()).unwrap();
         oracle
@@ -1090,7 +1090,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         }));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         assert_eq!(
             source.view().0.value,
@@ -1104,7 +1104,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source.handle_event(UiEvent::Ime(ImeEvent::Commit("日本".into())));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         assert_eq!(source.view().0.value, format!("{value}日本"));
         let key = |value: &str| {
@@ -1124,7 +1124,7 @@ fn native_input_uses_one_geometry_for_drawing_editing_and_ime_at_multiple_dpi() 
         source.handle_event(key("a"));
         source.prepare_for_event(&mut text).unwrap();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 100), scale)
+            .render_frame(&mut scene, &mut text, (320, 100), scale)
             .unwrap();
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
         assert!(
@@ -1236,7 +1236,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
         let mut source = Source::with_clock(NativeView(ScrollPage::default()), clock.clone());
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+            .render_frame(&mut scene, &mut text, (320, 160), scale)
             .unwrap();
         let size = [(320. * scale) as u32, (160. * scale) as u32];
         renderer.render_scene(&scene, size, [1.; 4], true).unwrap();
@@ -1268,7 +1268,7 @@ fn native_scroll_matches_full_replay_and_reuses_warm_glyphs_across_dpi() {
             }
             clock.advance(Duration::from_millis(16)).unwrap();
             source
-                .render_retained_frame(&mut scene, &mut text, (320, 160), scale)
+                .render_frame(&mut scene, &mut text, (320, 160), scale)
                 .unwrap();
             max_scroll = source
                 .placed_nodes()
@@ -1700,4 +1700,208 @@ fn retired_page_image_sources_are_released_after_resize_and_removal() {
         .unwrap();
     assert_eq!(renderer.image_cache_stats().0, 0);
     assert_eq!(live.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn nested_translation_reuses_resting_text_atlas_at_fractional_device_scale() {
+    struct MotionView {
+        moving: bool,
+        shows: usize,
+    }
+    impl plico_runtime::HostView for MotionView {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            self.shows += 1;
+            column(cx).translate(0.3, 0.6).children(|cx| {
+                column(cx)
+                    .translate(if self.moving { 17.5 } else { 0. }, 0.)
+                    .transition(200)
+                    .children(|cx| {
+                        column(cx)
+                            .translate(0., if self.moving { 21.25 } else { 0. })
+                            .transition(200)
+                            .children(|cx| {
+                                text(cx, "Resting glyph phase");
+                            });
+                    });
+            });
+        }
+    }
+
+    let scale = 1.25;
+    let logical = (240, 96);
+    let device = [300, 120];
+    let clock = plico::VirtualClock::default();
+    let mut source = Source::with_clock(
+        MotionView {
+            moving: false,
+            shows: 0,
+        },
+        clock.clone(),
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, scale).unwrap();
+    let mut scene = Scene::new();
+    let sample = |source: &mut Source<MotionView>,
+                  renderer: &mut Renderer,
+                  scene: &mut Scene,
+                  text: &mut TextContext| {
+        source.render_frame(scene, text, logical, scale).unwrap();
+        renderer
+            .render_scene(scene, device, [0., 0., 0., 1.], false)
+            .unwrap()
+    };
+
+    sample(&mut source, &mut renderer, &mut scene, &mut text);
+    source.update(|view| view.moving = true);
+    let mut previous = sample(&mut source, &mut renderer, &mut scene, &mut text);
+    let moving_start = scene
+        .flattened()
+        .commands
+        .iter()
+        .find_map(|command| {
+            if let PaintCommand::MovingParagraph {
+                transform, offset, ..
+            } = command
+            {
+                let [_, _, _, _, x, y] = transform.as_coeffs();
+                Some([x - offset[0], y - offset[1]])
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let glyphs = renderer.text_stats().cached_glyphs;
+    let shows = source.view().shows;
+
+    for ms in [29, 61, 107, 153] {
+        clock.set(std::time::Duration::from_millis(ms)).unwrap();
+        let pixels = sample(&mut source, &mut renderer, &mut scene, &mut text);
+        let resting = scene
+            .flattened()
+            .commands
+            .iter()
+            .find_map(|command| {
+                if let PaintCommand::MovingParagraph {
+                    transform, offset, ..
+                } = command
+                {
+                    let [_, _, _, _, x, y] = transform.as_coeffs();
+                    Some([x - offset[0], y - offset[1]])
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert!(
+            resting
+                .iter()
+                .zip(moving_start)
+                .all(|(x, y)| (x - y).abs() < 1e-8)
+        );
+        assert_eq!(renderer.text_stats().cached_glyphs, glyphs);
+        assert_eq!(source.view().shows, shows);
+        assert_ne!(pixels, previous);
+        previous = pixels;
+    }
+
+    clock.set(std::time::Duration::from_millis(200)).unwrap();
+    sample(&mut source, &mut renderer, &mut scene, &mut text);
+    assert!(scene.flattened().commands.iter().any(|command| {
+        matches!(command, PaintCommand::Paragraph { request, .. }
+            if request.text.as_ref() == "Resting glyph phase")
+    }));
+    assert_eq!(renderer.text_stats().cached_glyphs, glyphs);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn matched_flight_paints_outside_its_parent_clip_and_respects_overlay_order() {
+    struct Flight {
+        destination: bool,
+        overlay: ModalState,
+    }
+
+    impl plico_runtime::HostView for Flight {
+        fn theme(&self) -> Theme {
+            Theme::dark()
+        }
+
+        #[component]
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            let (x, width) = if self.destination {
+                (240., 120.)
+            } else {
+                (16., 72.)
+            };
+            column(cx)
+                .key(usize::from(self.destination))
+                .absolute(x, 30.)
+                .width(width)
+                .height(50.)
+                .clip(true)
+                .children(|cx| {
+                    column(cx)
+                        .width(width)
+                        .height(50.)
+                        .shared_element("raster-flight", Animation::SMOOTH)
+                        .background(Color::Literal(0xef192a))
+                        .end();
+                });
+            modal(cx, &mut self.overlay)
+                .header(false)
+                .motion(Motion::None)
+                .scrim_opacity(0.65)
+                .children(|cx| {
+                    text(cx, "Modal above the matched element");
+                });
+        }
+    }
+
+    let size = (400, 180);
+    let clock = plico::VirtualClock::default();
+    let mut source = Source::with_clock(
+        Flight {
+            destination: false,
+            overlay: ModalState::default(),
+        },
+        clock.clone(),
+    );
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    renderer.configure_text(&mut text, 1.).unwrap();
+    let mut scene = Scene::new();
+    let mut pixels = |source: &mut Source<Flight>| {
+        source
+            .render_frame(&mut scene, &mut text, size, 1.)
+            .unwrap();
+        renderer
+            .render_scene(&scene, [size.0, size.1], [0., 0., 0., 1.], false)
+            .unwrap()
+    };
+    let sample = |rgba: &[u8], x: usize| rgba[(55 * size.0 as usize + x) * 4];
+    let origin = pixels(&mut source);
+    assert!(sample(&origin, 40) > 220);
+    source.update(|view| view.destination = true);
+    let handoff = pixels(&mut source);
+    assert!(sample(&handoff, 40) > 220);
+    assert!(sample(&handoff, 265) < 100);
+    assert!(
+        sample(&handoff, 98) < 100,
+        "temporary crop must cut the wider destination"
+    );
+    clock.advance(std::time::Duration::from_millis(80)).unwrap();
+    let flying = pixels(&mut source);
+    let at = (88..230).find(|&x| sample(&flying, x) > 220).unwrap();
+    source.update(|view| view.overlay.open());
+    let covered = pixels(&mut source);
+    assert!(sample(&covered, at) < 180);
+
+    clock.advance(std::time::Duration::from_secs(2)).unwrap();
+    source.update(|view| view.overlay.close());
+    let landed = pixels(&mut source);
+    assert!(sample(&landed, 265) > 220);
+    assert!(sample(&landed, 40) < 100);
 }

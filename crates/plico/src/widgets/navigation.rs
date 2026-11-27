@@ -177,8 +177,8 @@ pub fn sidebar_entry<'u, 'e, 't>(
 }
 
 /// One item of a [`sidebar`] (MyGO `SidebarItem`): an icon (optional) and a
-/// single-line label. The chosen row is gray outside the sidebar's focus scope
-/// and uses the accent face while its scope holds focus, following MyGO.
+/// single-line label. The chosen row uses an accent face during keyboard
+/// navigation and a neutral face for pointer selection.
 /// It carries the tree-item role and its selected state; the
 /// declaration site owns the choice on [`crate::Response::clicked`].
 pub fn sidebar_item(

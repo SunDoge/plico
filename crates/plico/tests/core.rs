@@ -1,8 +1,9 @@
+use plico::widgets::{button, button_base, column, switch, text as ui_text, text_input};
 use plico::*;
 fn text(engine: &mut Engine, label: &str, color: Color) -> FrameStats {
     engine
         .frame(|ui| {
-            ui.text(label).key("label").color(color);
+            ui_text(ui, label).key("label").color(color);
         })
         .unwrap()
 }
@@ -53,11 +54,14 @@ fn content_changes_measure_only_affected_leaf() {
     let mut engine = Engine::default();
     let view = |ui: &mut UiContext<'_>, edited: bool| {
         for i in 0..100usize {
-            ui.text(if edited && i == 42 {
-                "edited"
-            } else {
-                "stable"
-            })
+            ui_text(
+                ui,
+                if edited && i == 42 {
+                    "edited"
+                } else {
+                    "stable"
+                },
+            )
             .key(i);
         }
     };
@@ -77,8 +81,8 @@ fn content_changes_measure_only_affected_leaf() {
 fn font_changes_propagate_size_through_ancestors() {
     let mut engine = Engine::default();
     let view = |ui: &mut UiContext<'_>, size| {
-        let _ = ui.column().key("panel").children(|ui| {
-            ui.text("title").key("title").font_size(size);
+        let _ = column(ui).key("panel").children(|ui| {
+            ui_text(ui, "title").key("title").font_size(size);
         });
     };
     engine.frame(|ui| view(ui, 16)).unwrap();
@@ -105,7 +109,7 @@ fn explicit_width_and_intrinsic_width_are_distinct_cache_inputs() {
     assert!(engine.node(id).unwrap().size.width < 200.);
     let stats = engine
         .frame(|ui| {
-            ui.text("hello").key("label").width(200.);
+            ui_text(ui, "hello").key("label").width(200.);
         })
         .unwrap();
     assert_eq!(stats.measure_calls, 1);
@@ -116,7 +120,7 @@ fn keyed_reordering_preserves_handles_and_text_measurement() {
     let mut engine = Engine::default();
     let view = |ui: &mut UiContext<'_>, order: &[u64]| {
         for &key in order {
-            ui.text("item").key(key);
+            ui_text(ui, "item").key(key);
         }
     };
     engine.frame(|ui| view(ui, &[1, 2, 3])).unwrap();
@@ -137,8 +141,8 @@ fn keyed_reordering_preserves_handles_and_text_measurement() {
 fn removed_subtrees_reject_old_handles_and_can_remount() {
     let mut engine = Engine::default();
     let view = |ui: &mut UiContext<'_>| {
-        let _ = ui.column().key("panel").children(|ui| {
-            ui.text("child").key("child");
+        let _ = column(ui).key("panel").children(|ui| {
+            ui_text(ui, "child").key("child");
         });
     };
     engine.frame(view).unwrap();
@@ -158,8 +162,8 @@ fn theme_update_affects_tokens_without_measuring_or_copying_theme_per_node() {
     let mut engine = Engine::default();
     engine
         .frame(|ui| {
-            ui.text("token").key("token");
-            ui.text("fixed").key("fixed").color(Color::Literal(0));
+            ui_text(ui, "token").key("token");
+            ui_text(ui, "fixed").key("fixed").color(Color::Literal(0));
         })
         .unwrap();
     engine.set_theme(Theme {
@@ -168,8 +172,8 @@ fn theme_update_affects_tokens_without_measuring_or_copying_theme_per_node() {
     });
     let stats = engine
         .frame(|ui| {
-            ui.text("token").key("token");
-            ui.text("fixed").key("fixed").color(Color::Literal(0));
+            ui_text(ui, "token").key("token");
+            ui_text(ui, "fixed").key("fixed").color(Color::Literal(0));
         })
         .unwrap();
     assert_eq!(
@@ -182,23 +186,23 @@ fn queued_click_is_consumed_synchronously_and_disabled_button_ignores_it() {
     let mut engine = Engine::default();
     engine
         .frame(|ui| {
-            ui.button("Save").key("save");
+            button(ui).text("Save").key("save");
         })
         .unwrap();
     let id = engine.find(engine.root(), "save").unwrap();
     engine.queue_click(id);
     let mut clicked = false;
     engine
-        .frame(|ui| clicked = ui.button("Save").key("save").clicked())
+        .frame(|ui| clicked = button(ui).text("Save").key("save").clicked())
         .unwrap();
     assert!(clicked);
     engine
-        .frame(|ui| clicked = ui.button("Save").key("save").clicked())
+        .frame(|ui| clicked = button(ui).text("Save").key("save").clicked())
         .unwrap();
     assert!(!clicked);
     engine.queue_click(id);
     engine
-        .frame(|ui| clicked = ui.button("Save").key("save").disabled(true).clicked())
+        .frame(|ui| clicked = button(ui).text("Save").key("save").disabled(true).clicked())
         .unwrap();
     assert!(!clicked);
 }
@@ -207,14 +211,14 @@ fn duplicate_identity_and_invalid_style_are_reported() {
     let mut engine = Engine::default();
     assert!(matches!(
         engine.frame(|ui| {
-            ui.text("a").key("same");
-            ui.text("b").key("same");
+            ui_text(ui, "a").key("same");
+            ui_text(ui, "b").key("same");
         }),
         Err(FrameError::DuplicateKey { .. })
     ));
     assert_eq!(
         engine.frame(|ui| {
-            ui.text("a").width(f32::NAN);
+            ui_text(ui, "a").width(f32::NAN);
         }),
         Err(FrameError::InvalidStyle)
     );
@@ -226,8 +230,8 @@ fn repairing_an_error_frame_does_not_lose_paint_invalidation() {
     assert!(
         engine
             .frame(|ui| {
-                ui.text("hello").key("label").color(Color::Literal(2));
-                ui.text("duplicate").key("label");
+                ui_text(ui, "hello").key("label").color(Color::Literal(2));
+                ui_text(ui, "duplicate").key("label");
             })
             .is_err()
     );
@@ -241,7 +245,7 @@ fn changing_widget_kind_reinitializes_layout_cache_without_unsafe_casts() {
     let id = engine.find(engine.root(), "label").unwrap();
     let stats = engine
         .frame(|ui| {
-            ui.column().key("label").children(|_| {});
+            column(ui).key("label").children(|_| {});
         })
         .unwrap();
     assert_eq!(engine.node(id).unwrap().kind, Kind::Column);
@@ -253,8 +257,8 @@ fn explicit_height_updates_cached_simulated_measurement_and_invalid_paint_is_rej
     let mut engine = Engine::default();
     engine
         .frame(|ui| {
-            ui.column().key("panel").height(100.).children(|ui| {
-                ui.text("Sized").key("text").height(40.);
+            column(ui).key("panel").height(100.).children(|ui| {
+                ui_text(ui, "Sized").key("text").height(40.);
             });
         })
         .unwrap();
@@ -264,8 +268,8 @@ fn explicit_height_updates_cached_simulated_measurement_and_invalid_paint_is_rej
     assert_eq!(engine.node(text).unwrap().size.height, 40.);
     engine
         .frame(|ui| {
-            ui.column().key("panel").height(120.).children(|ui| {
-                ui.text("Sized").key("text").height(60.);
+            column(ui).key("panel").height(120.).children(|ui| {
+                ui_text(ui, "Sized").key("text").height(60.);
             });
         })
         .unwrap();
@@ -274,14 +278,14 @@ fn explicit_height_updates_cached_simulated_measurement_and_invalid_paint_is_rej
     assert!(
         engine
             .frame_declarations(|ui| {
-                ui.text("Invalid").opacity(f32::NAN);
+                ui_text(ui, "Invalid").opacity(f32::NAN);
             })
             .is_err()
     );
     assert!(
         engine
             .frame_declarations(|ui| {
-                ui.column().height(-1.).children(|_| {});
+                column(ui).height(-1.).children(|_| {});
             })
             .is_err()
     );
@@ -293,18 +297,18 @@ fn frame_errors_report_the_first_failure() {
     // Invalid style is detected before the duplicate key later in the same frame.
     assert_eq!(
         engine.frame(|ui| {
-            ui.text("a").key("same").width(f32::NAN);
-            ui.text("b").key("same");
+            ui_text(ui, "a").key("same").width(f32::NAN);
+            ui_text(ui, "b").key("same");
         }),
         Err(FrameError::InvalidStyle)
     );
     // A nested control fires first; a later invalid style must not overwrite it.
     assert_eq!(
         engine.frame(|ui| {
-            ui.button_base("outer").children(|ui| {
-                ui.switch("inner", &mut false);
+            button_base(ui, "outer").children(|ui| {
+                switch(ui, "inner", &mut false);
             });
-            ui.text("late").width(f32::NAN);
+            ui_text(ui, "late").width(f32::NAN);
         }),
         Err(FrameError::NestedControl)
     );
@@ -315,13 +319,13 @@ fn unconsumed_path_events_are_reported_not_silently_dropped() {
     let mut engine = Engine::default();
     engine
         .frame_declarations(|ui| {
-            ui.button("Save").key("save");
+            button(ui).text("Save").key("save");
         })
         .unwrap();
     engine.queue_click_path(vec![PathKey::Named("save".into())]);
     let mut clicked = false;
     engine
-        .frame_declarations(|ui| clicked = ui.button("Save").key("save").clicked())
+        .frame_declarations(|ui| clicked = button(ui).text("Save").key("save").clicked())
         .unwrap();
     assert!(clicked);
     let unmatched = engine.take_unmatched_paths();
@@ -331,7 +335,7 @@ fn unconsumed_path_events_are_reported_not_silently_dropped() {
     engine.queue_value_path(vec![PathKey::Named("missing".into())], 1.);
     engine
         .frame_declarations(|ui| {
-            ui.button("Save").key("save");
+            button(ui).text("Save").key("save");
         })
         .unwrap();
     let unmatched = engine.take_unmatched_paths();
@@ -346,8 +350,8 @@ fn removed_entities_accumulate_across_declaration_passes() {
     let mut engine = Engine::default();
     engine
         .frame_declarations(|ui| {
-            ui.column().key("panel").children(|ui| {
-                ui.text("a").key("item");
+            column(ui).key("panel").children(|ui| {
+                ui_text(ui, "a").key("item");
             });
         })
         .unwrap();
@@ -355,12 +359,12 @@ fn removed_entities_accumulate_across_declaration_passes() {
     // a host syncs once per settled batch, after every pass.
     engine
         .frame_declarations(|ui| {
-            ui.column().key("panel").children(|_| {});
+            column(ui).key("panel").children(|_| {});
         })
         .unwrap();
     engine
         .frame_declarations(|ui| {
-            ui.column().key("panel").children(|_| {});
+            column(ui).key("panel").children(|_| {});
         })
         .unwrap();
     assert_eq!(engine.take_removed().len(), 1);
@@ -368,17 +372,17 @@ fn removed_entities_accumulate_across_declaration_passes() {
     // The simulated-measurement path clears the accumulator per frame instead.
     let mut sim = Engine::default();
     sim.frame(|ui| {
-        ui.text("a").key("x");
-        ui.text("b").key("y");
+        ui_text(ui, "a").key("x");
+        ui_text(ui, "b").key("y");
     })
     .unwrap();
     sim.frame(|ui| {
-        ui.text("a").key("x");
+        ui_text(ui, "a").key("x");
     })
     .unwrap();
     assert_eq!(sim.take_removed().len(), 1);
     sim.frame(|ui| {
-        ui.text("a").key("x");
+        ui_text(ui, "a").key("x");
     })
     .unwrap();
     assert!(sim.take_removed().is_empty());
@@ -390,13 +394,13 @@ fn changing_input_kind_releases_the_old_native_binding() {
     let buffer = plico::TextBuffer::new();
     engine
         .frame_declarations(|ui| {
-            ui.text_input("Field", &buffer).key("same");
+            text_input(ui, "Field", &buffer).key("same");
         })
         .unwrap();
     assert_eq!(engine.input_bindings().count(), 1);
     engine
         .frame_declarations(|ui| {
-            ui.text("Label").key("same");
+            ui_text(ui, "Label").key("same");
         })
         .unwrap();
     assert_eq!(engine.input_bindings().count(), 0);

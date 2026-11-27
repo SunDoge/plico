@@ -25,7 +25,7 @@ impl HostView for Demo {
 }
 fn sample(source: &mut Source<Demo>, text: &mut TextContext) -> (f32, [f32; 2], [f64; 6]) {
     source
-        .render_retained_frame(&mut Scene::new(), text, (64, 64), 1.)
+        .render_frame(&mut Scene::new(), text, (64, 64), 1.)
         .unwrap();
     source
         .placed_nodes()

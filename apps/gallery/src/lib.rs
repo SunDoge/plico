@@ -79,6 +79,8 @@ pub enum Page {
     Patterns,
     #[route(label = "Liquid Glass", icon = color_icons::DESIGN_IDEAS)]
     LiquidGlass,
+    #[route(label = "Liquid Glass Showcase", icon = color_icons::DESIGN_IDEAS)]
+    LiquidGlassShowcase,
     #[route(label = "Effects", icon = color_icons::DESIGN_IDEAS)]
     Effects,
     #[route(label = "Shader playground", icon = color_icons::DESIGN_IDEAS)]
@@ -221,6 +223,8 @@ impl Gallery {
                     }
                     Page::LiquidGlass => liquid_showcase::page(ui, &mut self.liquid_showcase, self.dark,
                         self.sidebar_collapsed),
+                    Page::LiquidGlassShowcase => liquid_showcase::wall(ui, &mut self.liquid_showcase,
+                        self.dark, self.sidebar_collapsed),
                     Page::Effects => effects::page(ui, &mut self.effects),
                     Page::ShaderPlayground => {
                         shader_playground::page(ui, &mut self.shader_playground)
@@ -257,11 +261,21 @@ impl Gallery {
             "only-the-visible-rows-are-built-scroll-to-explore", "Only the visible rows are built. Scroll to explore."))
         + |ui|
         {
-            virtual_list(ui, 10_000, 36.).height(216.).rows(
-                |i| i as u64,
+            let swap = ui.state(|| false);
+            if button(ui).text(l.text("swap-virtual-rows", "Swap rows 2 and 3")).clicked() {
+                swap.set(!swap.get());
+            }
+            let swapped = swap.get();
+            let record = |index| match (swapped, index) {
+                (true, 1) => 2,
+                (true, 2) => 1,
+                _ => index,
+            };
+            virtual_list(ui, 10_000, 36.).height(216.).move_animation(plico::Animation::SMOOTH).rows(
+                |i| record(i) as u64,
                 |ui, i| {
                     let _ = row(ui).height(36.).padding(8).align(Align::Center).children(|ui| {
-                        plico::text!(ui, "Record {:05}", i + 1);
+                        plico::text!(ui, "Record {:05}", record(i) + 1);
                     });
                 },
             );
@@ -274,16 +288,21 @@ impl Gallery {
     #[rustfmt::skip]
     fn controls_page(&mut self, ui: &mut UiContext) {
         let l = ui.localizer();
+        let m = ui.theme().metrics;
         heading(
             ui,
             &l.text("controls", "Controls"),
             &l.text("small-interactions-shared-state-leave-the-page-and-your-values-stay",
                 "Small interactions, shared state. Leave the page and your values stay."),
         );
-        column(ui).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(16) + |ui| {
+        column(ui).height(0.).grow(1.).scroll_y(true).padding_top(m.space(3)).padding_right(m.space(6)).gap(m.space(4))
+        + |ui|
+        {
             panel(ui, l.text("hover-and-activation", "Hover and activation").as_ref()) + |ui| {
                 let activations = ui.state(|| 0_u32);
-                let response = button(ui).text(l.text("hover-or-activate", "Hover or activate")).response();
+                let response = row(ui).align(Align::Center).children(|ui| {
+                    button(ui).text(l.text("hover-or-activate", "Hover or activate")).response()
+                }).inner;
                 let mut hint = l.text("hover-hint",
                     "Move the pointer over the button, or activate it with the keyboard.");
                 if response.hovered() {
@@ -414,17 +433,17 @@ impl Gallery {
                     ruby_text(ui, "へ").font_size(28);
                 };
             };
-            column(ui).padding(16).gap(12).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-                text(ui, "Icon & label alignment").font_size(17).weight(650);
-                row(ui).gap(8).wrap(true) + |ui| {
-                    button(ui).icon(&crate::icons::SAVE).text("Save changes").height(40.);
-                    button(ui).icon(&crate::icons::SAVE).text("保存更改").height(40.);
-                    button(ui).icon(&crate::icons::SAVE).text("Agjp 0123").font_size(18).height(40.);
+            panel(ui, "Icon & label alignment") + |ui| {
+                let m = ui.theme().metrics;
+                row(ui).gap(m.space(2)).align(Align::Center).wrap(true) + |ui| {
+                    button(ui).icon(&crate::icons::SAVE).text("Save changes");
+                    button(ui).icon(&crate::icons::SAVE).text("保存更改");
+                    button(ui).icon(&crate::icons::SAVE).text("Agjp 0123").font_size(18);
                     button(ui).icon(&crate::icons::SAVE).text("A long action label that stays on one line")
-                        .width(180.).height(40.);
+                        .width(180.);
                 };
                 text(ui, "Icons keep their size; constrained action labels truncate without losing their accessible name.")
-                    .font_size(12).color(Color::Muted);
+                    .color(Color::Muted);
             };
         };
     }
@@ -437,6 +456,33 @@ impl Gallery {
         // The two demo cards plus the shader do not fit the 640px minimum
         // window; the page scrolls rather than overflowing the viewport.
         column(ui).height(0.).grow(1.).scroll_y(true).padding_right(24).gap(20) + |ui| {
+            column(ui).padding(20).gap(12).radius(14.).background(Color::Panel) + |ui| {
+                let side = ui.state(|| false);
+                row(ui).justify(Justify::SpaceBetween).align(Align::Center).gap(8) + |ui| {
+                    text(ui, l.text("shared-element", "Shared element")).font_size(17).weight(650).grow(1.);
+                    if button(ui).text(l.text("move-shared-element", "Move element")).clicked() {
+                        side.set(!side.get());
+                    }
+                };
+                row(ui).gap(16).align(Align::Center) + |ui| {
+                    for right in [false, true] {
+                        column(ui).key(usize::from(right)).height(100.).width(0.).grow(1.).radius(10.)
+                            .background(Color::Surface).clip(true).align(Align::Center)
+                            .justify(Justify::Center) + |ui|
+                        {
+                            if right == side.get() {
+                                column(ui).width(if right { 120. } else { 84. })
+                                    .height(if right { 80. } else { 56. }).radius(8.)
+                                    .background(Color::Accent).shared_element("gallery.motion.tile",
+                                        plico::Animation::SNAPPY).align(Align::Center).justify(Justify::Center) + |ui|
+                                {
+                                    plico::widgets::svg(ui, &crate::icons::LAYERS).size(20., 20.).color(Color::OnAccent);
+                                };
+                            }
+                        };
+                    }
+                };
+            };
             column(ui).padding(20).gap(20).radius(14.).background(Color::Panel) + |ui| {
                 row(ui).justify(Justify::SpaceBetween).gap(8) + |ui| {
                     text(ui, "Layout + style").font_size(17).weight(650).grow(1.);
@@ -598,10 +644,11 @@ impl Gallery {
 #[rustfmt::skip]
 fn release_channel(ui: &mut UiContext, menu: &mut plico::PopoverState, details: &mut bool) {
     let l = ui.localizer();
+    let m = ui.theme().metrics;
     let channel = ui.persisted_state("selected", || 0_usize);
     let mut selected = channel.get();
-    column(ui).padding(16).gap(8).radius(10.).background(Color::Panel).border(1., Color::Border) + |ui| {
-        row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+    panel(ui, None) + |ui| {
+        row(ui).gap(m.space(2)).align(Align::Center).wrap(true) + |ui| {
             text(ui, l.text("release-channel", "Release channel")).font_size(17).weight(650).grow(1.);
             badge(
                 ui,
@@ -617,7 +664,7 @@ fn release_channel(ui: &mut UiContext, menu: &mut plico::PopoverState, details: 
             plico::SelectOption::new("beta", 1, "Beta"),
             plico::SelectOption::new("nightly", 2, "Nightly"),
         ];
-        row(ui).gap(8).align(Align::Center).wrap(true) + |ui| {
+        row(ui).gap(m.space(2)).align(Align::Center).wrap(true) + |ui| {
             segmented(ui, &mut selected, &["Stable", "Beta", "Nightly"]);
             plico::widgets::select(ui, menu, "Channel", &mut selected, &channels).width(132.);
         };

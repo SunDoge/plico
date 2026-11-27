@@ -34,6 +34,11 @@ expansion in `Glass.BuildMaterial` / `pressed.PaintMaterial` in `glass.go`.
 Retained uniform transitions, painting overflow, hit testing and scheduling are
 Plico framework implementations.
 
+Circular glass edges use the one-device-pixel linear coverage ramp and the
+effect geometry fringe from MyGO's `internal/gpu/metal/shader.metal` at
+revision `f651b1061d917336f31c3ede523cb49c524172eb` (MIT). The capsule's
+distance and normal use the equivalent closest-point-on-a-segment form.
+
 Elevation presets separate contact and ambient shadows, following the two-shadow
 treatment of MyGO `examples/effort-slider/effort.go`. MyGO's glass material itself
 casts no shadow. The preset values are Plico's design tokens, not an assertion of
@@ -74,6 +79,10 @@ and shadow from `glass-popup.tsx` and `engine.ts` at the same revision.
 The clear Play button face follows `glass-button-clear.tsx`,
 `glass-button.tsx`, `glass-layer.tsx`, and `engine.ts` at the same
 revision for its XL layout, refraction curve, rim lighting, and shadow.
+Web-derived glass faces use the `engine.ts` signed-distance pixel footprint
+(`fwidth`) and forward-sampled refraction direction. Custom glass also uses
+the WebGL coverage mask, while the MyGO Regular and Clear presets use
+MyGO's linear coverage.
 
 The popup opening and replay curves, joined Select contour, and centered
 menu and popover growth adapt `glass-popup.tsx` and `engine.ts` at that

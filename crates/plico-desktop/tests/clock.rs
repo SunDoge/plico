@@ -1,4 +1,5 @@
-use plico::{Clock, FrameTime, UiContext, VirtualClock, component};
+use plico::widgets::{button, text};
+use plico::{Clock, FrameTime, UiContext, VirtualClock, component, text};
 use plico_desktop::{HostView, Source};
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
 use std::time::Duration;
@@ -11,8 +12,9 @@ impl HostView for Timed {
     #[component]
     fn show(&mut self, ui: &mut UiContext<'_>) {
         self.seen.push(ui.time());
-        ui.text(format!("Time: {}", ui.now().as_millis()));
-        if ui.button("Increment").clicked() {
+        let elapsed = ui.now().as_millis();
+        text!(ui, "Time: {elapsed}");
+        if button(ui).text("Increment").clicked() {
             self.count += 1;
         }
         if ui.now() < Duration::from_millis(200) {
@@ -61,7 +63,7 @@ fn injected_clock_drives_host_layout_tweens_too() {
     struct BoxView(bool);
     impl HostView for BoxView {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            ui.text("Box")
+            text(ui, "Box")
                 .width(if self.0 { 300. } else { 100. })
                 .transition(200);
         }

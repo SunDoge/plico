@@ -24,8 +24,6 @@ impl Leaf<'_, '_, '_> {
         if styled {
             style.align.get_or_insert(Align::Center);
             style.justify.get_or_insert(Justify::Center);
-            // Button spacing is shared by shortcuts and custom content.
-            style.gap = ui.theme().metrics.spacing as f32 * 1.5;
         }
         style.disabled |= ui.inherited.disabled;
         style.styled_button = styled;
@@ -158,6 +156,11 @@ impl Text<'_, '_, '_> {
         self.inner.style.text_ellipsis = enabled;
         self
     }
+    /// Keep text at its intrinsic width and preserve explicit line breaks.
+    pub(crate) fn no_wrap(mut self) -> Self {
+        self.inner.style.text_no_wrap = true;
+        self
+    }
     #[inline(always)]
     pub(crate) fn semantic_role(mut self, role: crate::WidgetRole) -> Self {
         self.inner.style.role = Some(role);
@@ -168,7 +171,6 @@ pub struct Button<'u, 'e, 't> {
     pub(super) inner: Leaf<'u, 'e, 't>,
     pub(super) icon: Option<crate::SvgAsset>,
     pub(super) accessible_name: Option<Cow<'t, str>>,
-    pub(super) composable: bool,
 }
 macro_rules! common {
     ($name:ident) => {
@@ -461,6 +463,14 @@ macro_rules! common {
             #[inline(always)]
             pub fn translate(mut self, x: f32, y: f32) -> Self {
                 self.inner.style.translate = [x, y];
+                self.inner.style.translation_from_rest = false;
+                self
+            }
+            /// Move from the resting raster position without changing layout.
+            #[inline(always)]
+            pub fn translate_from_rest(mut self, x: f32, y: f32) -> Self {
+                self.inner.style.translate = [x, y];
+                self.inner.style.translation_from_rest = true;
                 self
             }
             #[inline(always)]
@@ -558,7 +568,6 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
     /// Hover and press adjust the material without changing layout or hit testing.
     pub fn material(mut self, material: crate::LiquidGlass) -> Self {
         self.inner.material = Some(material);
-        self.composable = true;
         self
     }
     /// Alignment of shortcut text/icon content along the button's main axis.
@@ -566,30 +575,22 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
         self.inner.style.justify = Some(value);
         self
     }
-    #[inline(always)]
-    pub(crate) fn composable(mut self) -> Self {
-        self.composable = true;
-        self
-    }
     /// Standard text content; shares the same container as custom children.
     #[inline(always)]
     pub fn text(mut self, text: impl Into<Cow<'t, str>>) -> Self {
         self.inner.text = text.into();
-        self.composable = true;
         self
     }
     /// Decorative leading icon, sized to match the button's text.
     #[inline(always)]
     pub fn icon(mut self, asset: &crate::SvgAsset) -> Self {
         self.icon = Some(*asset);
-        self.composable = true;
         self
     }
     /// Accessible name override, required for a button with only an icon.
     #[inline(always)]
     pub fn aria_label(mut self, label: impl Into<Cow<'t, str>>) -> Self {
         self.accessible_name = Some(label.into());
-        self.composable = true;
         self
     }
     /// Custom content replaces shortcut content. An explicit accessible name wins.
@@ -601,34 +602,12 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
             .unwrap_or_else(|| std::mem::take(&mut self.inner.text));
         self.inner.children(&name, true, build)
     }
-    #[inline(always)]
     fn finish(&mut self) -> Response {
-        self.finish_target().0
-    }
-    fn finish_target(&mut self) -> (Response, crate::Entity) {
-        if !self.composable {
-            let enabled = !self.inner.style.disabled;
-            let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
-            let (entity, clicked) = self.inner.finish();
-            return (
-                Response {
-                    clicked,
-                    enabled,
-                    hovered: self.inner.hovered,
-                    focused: focused == Some(entity),
-                },
-                entity,
-            );
-        }
         let text = std::mem::take(&mut self.inner.text);
         let name = self.accessible_name.take();
         let icon = self.icon.take();
-        let focused = self.inner.ui.as_ref().and_then(|ui| ui.engine.focused());
-        let mut entity = None;
-        let response = self
-            .inner
+        self.inner
             .children(name.as_deref().unwrap_or(&text), true, |cx| {
-                entity = Some(cx.parent);
                 if let Some(asset) = icon {
                     let size = cx.theme().metrics.control_icon() as f32;
                     cx.svg(&asset)
@@ -641,9 +620,7 @@ impl<'u, 'e, 't> Button<'u, 'e, 't> {
                         .ellipsis(true);
                 }
             })
-            .response;
-        let entity = entity.expect("button declaration");
-        (response.with_focused(focused == Some(entity)), entity)
+            .response
     }
     #[inline(always)]
     pub fn primary(mut self) -> Self {
@@ -708,7 +685,7 @@ impl crate::ImplicitKey for ButtonBase<'_, '_, '_> {
 }
 impl Drop for Button<'_, '_, '_> {
     fn drop(&mut self) {
-        if self.composable && self.inner.ui.is_some() {
+        if self.inner.ui.is_some() {
             self.finish();
         }
     }
@@ -894,10 +871,6 @@ impl Response {
             focused: false,
         }
     }
-    pub(crate) const fn with_focused(mut self, focused: bool) -> Self {
-        self.focused = focused;
-        self
-    }
     pub const fn clicked(self) -> bool {
         self.clicked
     }
@@ -938,33 +911,25 @@ impl<R> InnerResponse<R> {
 
 pub(super) fn style_input(style: &mut Style, theme: Theme) {
     let m = theme.metrics;
-    style.min_height = Some(m.control_height as f32);
-    style.padding = 0.;
+    m.apply_control_frame(style);
     style.padding_x = Some(m.space(3) as f32);
-    style.padding_y = Some(m.spacing as f32 * 1.5);
-    style.radius = m.radius as f32;
     style.border_width = 1.;
-    style.background = Some(Color::Control);
-    style.transition_ms = m.interaction_ms;
+    style.background = Some(Color::Panel);
 }
 
 /// Visual contexts for the same composed button, following MyGO styleButton.
 /// Kept outside widgets so shortcut and custom-content buttons share it.
-pub(super) enum ButtonAppearance {
+pub(crate) enum ButtonAppearance {
     Ordinary,
     Toolbar,
     Segment(bool),
 }
-pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAppearance) {
+pub(crate) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAppearance) {
     let m = theme.metrics;
-    style.transition_ms = m.interaction_ms;
-    style.padding = 0.;
+    m.apply_control_frame(style);
     style.padding_x = Some(m.spacing as f32 * 3.5);
-    style.padding_y = Some(m.spacing as f32 * 1.5);
     style.gap = m.spacing as f32 * 1.5;
     style.border_width = 1.;
-    style.radius = m.radius as f32;
-    style.min_height = Some(m.control_height as f32);
     style.background = Some(Color::Control);
     style.hover_background = Some(Color::ControlHover);
     style.pressed_background = Some(Color::ControlPressed);
@@ -981,13 +946,13 @@ pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAp
             style.border_width = 0.;
         }
         ButtonAppearance::Segment(on) => {
-            style.padding_x = Some(m.space(3) as f32);
-            style.padding_y = Some(m.space(1) as f32);
-            style.radius = (m.radius as f32 - m.spacing as f32 * 0.5).max(0.);
-            style.min_height = Some(0.);
+            // CUI's inset track uses a 3-point padding and one shared height.
+            style.padding_y = Some(0.);
+            style.radius = f32::from(m.inset_radius(m.radius, 3));
+            style.min_height = Some(f32::from(m.control_small()));
             style.border_width = 0.;
-            style.background = on.then_some(if theme.surface & 0xff < 128 {
-                Color::ControlPressed
+            style.background = on.then_some(if theme.is_dark() {
+                theme.blend(Color::Panel, Color::Foreground, 0.17)
             } else {
                 Color::Panel
             });
@@ -1003,6 +968,8 @@ pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAp
                     color: Color::Literal(0),
                     opacity: 0.12,
                 });
+            } else {
+                style.hover_background = None;
             }
         }
     }
@@ -1023,6 +990,7 @@ impl ButtonBase<'_, '_, '_> {
             ButtonAppearance::Segment(selected),
         );
         self.inner.style.selected = Some(selected);
+        self.inner.style.role = Some(crate::WidgetRole::RadioButton);
         self.styled = true;
         self
     }
@@ -1179,8 +1147,8 @@ impl<'t> Input<'_, '_, 't> {
             .theme()
             .metrics;
         self.inner.style.min_height = Some(
-            (m.control_height as f32 - m.spacing as f32 * 3.)
-                .max(self.inner.style.font_size as f32),
+            (m.control_height as f32 - m.control_padding_y() * 2. - 2.)
+                .max(f32::from(self.inner.style.font_size) * 1.4),
         );
         self.inner.style.radius = 0.;
         self
@@ -1347,7 +1315,7 @@ pub struct Shader<'u, 'e, 't> {
 }
 common!(Shader);
 impl<'e> UiContext<'e> {
-    pub fn shader<'u>(&'u mut self, asset: &crate::ShaderAsset) -> Shader<'u, 'e, 'static> {
+    pub(crate) fn shader<'u>(&'u mut self, asset: &crate::ShaderAsset) -> Shader<'u, 'e, 'static> {
         let mut inner = self.leaf(Kind::Shader, Cow::Borrowed(asset.source()));
         inner.style.width = Some(320.);
         inner.style.height = Some(180.);
@@ -1605,7 +1573,7 @@ pub struct Slider<'u, 'e, 't> {
 }
 common!(Slider);
 impl<'e> UiContext<'e> {
-    pub fn slider<'u, 't>(
+    pub(crate) fn slider<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         value: &'t mut f64,
@@ -1635,7 +1603,7 @@ impl<'e> UiContext<'e> {
             range,
         }
     }
-    pub fn range_slider<'u, 't>(
+    pub(crate) fn range_slider<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         low: &'t mut f64,

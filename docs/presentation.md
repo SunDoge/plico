@@ -19,6 +19,21 @@ MyGO 为 MIT，许可证保留于 `crates/plico-wgpu/third_party/mygo-LICENSE`�
 配合 `transition` / `motion` 由宿主采样；布局保持目标值。时间来自注入时钟。
 原生文字稳定密度复用目前覆盖正向等比缩放；旋转、非等比与任意应用逐帧改字号不在此保证内。
 
+共享元素可把 `SharedElementMotion` 放在同时管理两个位置的 scope 中，按稳定业务 key
+采样。用 `UiContext::presentation_bounds` 读取上一帧的实际窗口坐标，将两个位置换算到同一
+坐标系，再传入 `SharedElementGeometry`。框架独立插值裁切框和内容框，保存当前位置和速度，
+并在临近目标时归位到精确矩形。用 `geometry.pinned(rest)` 取得嵌套绘制的位置。同宽高比
+的飞行只更新呈现变换。裁切框宽高比变化时仍要更新裁切容器布局。
+
+只需要节点匹配时，在两端的容器上声明同一个 `.shared_element(key, Animation::SMOOTH)`，
+每次显示一个端点。宿主从上一帧的位置开始，在同窗口的两个父容器之间匹配，飞行期间在
+所属层内越过原父容器的裁剪。命中测试跟随飞行位置，静止后节点回到正常绘制顺序。
+目标宽高比变化时以均匀缩放覆盖飞行裁切框，飞行期间复用目标子树的布局；
+Gallery 的 Motion 页可以切换两个有裁剪的容器来观察这一行为。
+
+Stillroom 继续通过显式 `SharedElementMotion` 控制独立的照片裁切和高清图／缩略图交叉淡入。
+自动节点匹配当前使用到达节点自己的内容和外观，源节点留影、外观与文字形变是独立能力。
+
 Modal 面板为 140 ms 淡入并上移 8 px，遮罩、内容使用同一时间轴。锚定 popover 不位移，
 避免破坏定位。reduced motion 直接呈现最终状态，退出时也不保留动画。
 关闭后的 `ModalResponse.inner` 为 `None`；内容闭包不执行，因此清空业务数据不会使退出中的文字先消失。

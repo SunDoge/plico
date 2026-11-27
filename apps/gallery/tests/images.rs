@@ -3,7 +3,7 @@ use gallery::{Gallery, Page};
 use plico::Router;
 use plico_desktop::{
     NativeApp,
-    testing::{Command, Driver},
+    testing::{Command, Tester},
 };
 use plico_renderer::{
     animated_image::{AnimatedImage, AnimationLimits},
@@ -42,7 +42,7 @@ fn image_controls_work_without_network_or_manual_rebuild_requests() {
         )),
     );
     let surface = app.images.surface.clone();
-    let mut driver = Driver::new(NativeApp(app), 1120, 820).unwrap();
+    let mut driver = Tester::new(NativeApp(app), 1120, 820).unwrap();
     assert!(matches!(surface.status(), ImageLoadStatus::Ready { .. }));
     driver.execute(click("Pause")).unwrap();
     assert!(surface.paused());
@@ -88,7 +88,7 @@ fn desktop_host_downloads_decodes_and_schedules_both_formats() {
         let clock = plico::VirtualClock::default();
         let widget = ImageSurface::with_clock(state.clone(), Arc::new(clock.clone()));
         let mut source =
-            plico_desktop::SurfaceSource::new(GalleryHost { app }, widget, "image-preview");
+            plico_desktop::SurfaceSource::new(GalleryHost::new(app), widget, "image-preview");
         let (tx, rx) = mpsc::channel();
         source.set_wake_callback(Arc::new(move || {
             let _ = tx.send(());
@@ -148,7 +148,7 @@ fn background_failure_replaces_loading_text_without_user_input() {
     let ticket = state.begin_loading();
     let widget = ImageSurface::with_clock(state.clone(), Arc::new(plico::VirtualClock::default()));
     let mut source =
-        plico_desktop::SurfaceSource::new(GalleryHost { app }, widget, "image-preview");
+        plico_desktop::SurfaceSource::new(GalleryHost::new(app), widget, "image-preview");
     let mut text = TextContext::new();
     let build = |source: &mut plico_desktop::SurfaceSource<GalleryHost, ImageSurface>,
                  text: &mut TextContext| {

@@ -1,6 +1,7 @@
 fn snapshot(value: &impl serde::Serialize) -> plico_dev::StateSnapshot {
     plico_dev::StateSnapshot::encode(value).unwrap()
 }
+use plico::widgets::{button, column, text, text_input};
 use plico::{PathKey, UiContext};
 use plico_dev::{App, Request, render};
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -9,11 +10,11 @@ struct Counter {
 }
 impl App for Counter {
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        ui.column().key("app").children(|ui| {
-            if ui.button("Increment").key("increment").clicked() {
+        column(ui).key("app").children(|ui| {
+            if button(ui).text("Increment").key("increment").clicked() {
                 self.count += 1;
             }
-            ui.text(format!("Count: {}", self.count)).key("count");
+            text(ui, format!("Count: {}", self.count)).key("count");
         });
     }
 }
@@ -86,8 +87,8 @@ impl App for Themed {
     }
     #[plico::component]
     fn show(&mut self, ui: &mut UiContext) {
-        ui.button("Composite").primary().children(|ui| {
-            ui.text("Body");
+        button(ui).text("Composite").primary().children(|ui| {
+            text(ui, "Body");
         });
     }
 }
@@ -442,7 +443,7 @@ struct Editor {
 }
 impl App for Editor {
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        let response = ui.text_input("Edit", &self.buffer).response();
+        let response = text_input(ui, "Edit", &self.buffer).response();
         if response.changed() {
             self.echoed = self.buffer.text().unwrap_or_default();
         }
@@ -492,7 +493,7 @@ fn native_input_content_crosses_the_module_boundary_by_revision() {
     }
     impl App for Counting {
         fn show(&mut self, ui: &mut UiContext<'_>) {
-            if ui.text_input("Edit", &self.buffer).response().submitted() {
+            if text_input(ui, "Edit", &self.buffer).response().submitted() {
                 self.submits += 1;
             }
         }
@@ -573,8 +574,7 @@ struct Form {
 }
 impl App for Form {
     fn show(&mut self, ui: &mut UiContext<'_>) {
-        if ui
-            .text_input("Value", &self.buffer)
+        if text_input(ui, "Value", &self.buffer)
             .placeholder("Type here")
             .key("field")
             .response()
@@ -582,7 +582,7 @@ impl App for Form {
         {
             self.submits += 1;
         }
-        if ui.button("Save").key("save").clicked() {
+        if button(ui).text("Save").key("save").clicked() {
             self.saved = self.buffer.text().unwrap();
         }
     }
@@ -695,8 +695,8 @@ struct PrivateCounter;
 impl App for PrivateCounter {
     fn show(&mut self, ui: &mut UiContext<'_>) {
         let count = ui.state(|| 0_u32);
-        ui.text(format!("Count: {}", count.get())).key("count");
-        if ui.button("Increment").key("increment").clicked() {
+        text(ui, format!("Count: {}", count.get())).key("count");
+        if button(ui).text("Increment").key("increment").clicked() {
             count.update(|n| *n += 1);
         }
     }
@@ -731,8 +731,8 @@ fn component_local_state_survives_dev_session_and_resets_on_reload() {
 struct PersistentCounter;
 fn persistent_counter(ui: &mut UiContext) {
     let count = ui.persisted_state("count", || 0_u32);
-    ui.text(format!("Count: {}", count.get())).key("count");
-    if ui.button("Increment").key("increment").clicked() {
+    text(ui, format!("Count: {}", count.get())).key("count");
+    if button(ui).text("Increment").key("increment").clicked() {
         count.update(|n| *n += 1);
     }
 }

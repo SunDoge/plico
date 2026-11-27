@@ -36,7 +36,7 @@ fn sync_progress(progress: Res<Download>, mut ui: NonSendMut<PlicoUi<Settings>>)
 
 `PlicoSystems::Input` 在 `PreUpdate` 运行；游戏输入应排在它之后，并检查 `PlicoInput` 的 `wants_pointer`、`wants_keyboard` 和本帧 `*_consumed`。插件不会清空 Bevy 的原始输入。UI 在主世界更新完成后的同步 `ExtractSchedule` 中声明/准备；需要同步业务资源的 system 可放在 `Update` / `PostUpdate`。这避免 Plico 的 queue submission 与 Bevy render thread 的交换链重配并发。
 
-默认 `clipboard` feature 使用 Bevy 的系统剪贴板。禁用该 feature 时，应用可以读取 `PlicoClipboardRequest` 消息并将读取结果作为 `UiEvent::Paste` 回送；异步结果应验证焦点客户端没有改变。窗口/URL 等宿主操作通过 `PlicoHostAction` 消息交给应用执行，不会自动操作宿主窗口。
+默认 `clipboard` feature 使用 Bevy 的系统剪贴板。禁用该 feature 时，应用可以读取 `PlicoClipboardRequest` 消息并将读取结果作为 `UiEvent::Paste` 回送；异步结果应验证焦点客户端没有改变。窗口与系统操作由 Bevy 应用管理。
 
 ## 生命周期与绘制
 

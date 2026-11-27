@@ -172,61 +172,6 @@ pub struct FrameBatchStats {
     /// upper bound on fragment work before rounded/mask coverage rejection.
     pub backdrop_effect_pixels: u64,
 }
-/// CPU and GPU work spent on the most recently encoded frame, in milliseconds.
-///
-/// CPU stages are measured with `Instant` and are always available. `gpu_ms`
-/// brackets the frame between timestamp queries, which requires
-/// `wgpu::Features::TIMESTAMP_QUERY` and the `PLICO_GPU_TIMER` environment
-/// variable (or a profiling renderer). Child layers and effects are recorded in
-/// the root encoder; the closing presentation blit or readback copy is therefore
-/// included. A separately encoded image-mip prefix is not inside the timestamp
-/// bracket and is reported by `command_buffers`.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct FrameBudget {
-    /// Building the instance stream: scene flattening, text/glyph preparation.
-    pub prepare_ms: f64,
-    /// CPU time in instance and frame-uniform `write_buffer` calls.
-    pub upload_ms: f64,
-    /// Recording render passes, batching decisions and blits.
-    pub encode_ms: f64,
-    /// CPU time for the frame's queue submission.
-    pub submit_ms: f64,
-    /// Queue submissions issued for the frame. Normal rendering should use
-    /// one even when it contains an image-mip prefix command buffer.
-    pub submissions: u64,
-    /// Command buffers in the frame submission. Normally one; two when newly
-    /// uploaded images require a mip-generation prefix.
-    pub command_buffers: u64,
-    /// Blocking GPU wait for offscreen readback; zero for window presentation.
-    pub wait_ms: f64,
-    /// Instance-stream and frame-uniform bytes written this frame.
-    pub upload_bytes: u64,
-    /// Instances prepared across the root scene and child layers.
-    pub instances: u64,
-    /// Instanced scene draw calls, including damage-scissor replays.
-    pub draw_calls: u64,
-    /// Scene color passes, including isolated layers.
-    pub passes: u64,
-    /// Isolated-layer texture payload charged to this frame.
-    pub layer_bytes: u64,
-    /// Non-backdrop custom-effect target payload used by this frame.
-    pub effect_bytes: u64,
-    /// Backdrop snapshots copied by this frame.
-    pub backdrop_copies: u64,
-    /// Additional area-reduction and Gaussian backdrop-filter passes.
-    pub backdrop_mip_passes: u64,
-    /// Transient backdrop texture payload used by this frame.
-    pub backdrop_bytes: u64,
-    /// Physical backdrop texture resources used this frame; an array counts once.
-    pub backdrop_textures: u64,
-    /// Backdrop readers served from same-stage snapshot arrays.
-    pub backdrop_shared_reads: u64,
-    /// Physical pixels admitted by backdrop-effect scissors.
-    pub backdrop_effect_pixels: u64,
-    /// GPU time of the root command encoder, when timestamps are available.
-    pub gpu_ms: Option<f64>,
-}
-
 // Preserve scope markers while culling expensive child layers before encoding.
 // The later instance filter remains useful for glyph-level pruning.
 fn draw_intersects(draw: &crate::Draw<'_>, regions: &[[u32; 4]]) -> bool {
@@ -298,6 +243,9 @@ pub struct Renderer {
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
     backdrop_gaussian: Option<crate::backdrop_gaussian::GaussianBackdrops>,
+    pub(crate) backdrop_read_keys:
+        std::collections::HashMap<plico_renderer::ShaderEffectId, Option<(usize, bool)>>,
+    pub(crate) force_backdrop_refresh: bool,
     backdrop_pool: crate::backdrop_pool::Pool,
     force_separate_backdrops: bool,
     force_generic_backdrop: bool,
@@ -388,7 +336,7 @@ pub struct Renderer {
     frame_images: Vec<std::rc::Rc<crate::image::GpuImage>>,
     frame_image_slots: std::collections::HashMap<usize, usize>,
     batch_stats: FrameBatchStats,
-    frame_budget: FrameBudget,
+    frame_budget: plico_renderer::FrameBudgetSample,
     gpu_timer: Option<gpu_timer::GpuTimer>,
     pending_gpu_slot: Option<usize>,
     /// Commands that must execute before the frame encoder. This is limited to
@@ -410,9 +358,12 @@ impl Renderer {
         &mut self,
         encoder: wgpu::CommandEncoder,
     ) -> wgpu::SubmissionIndex {
-        let final_command = encoder.finish();
+        let final_command = tracing::debug_span!(target: "plico::perf", "wgpu.finish_commands")
+            .in_scope(|| encoder.finish());
         let prefixes = std::mem::take(&mut self.frame_prefix_commands);
         self.frame_budget.command_buffers += prefixes.len() as u64 + 1;
+        let submit_span = tracing::debug_span!(target: "plico::perf", "wgpu.queue_submit");
+        let submit_guard = submit_span.enter();
         let submission = if self.split_submits {
             let mut commands = prefixes.into_iter().chain(std::iter::once(final_command));
             let first = commands.next().expect("a frame has a final command buffer");
@@ -428,7 +379,11 @@ impl Renderer {
             self.queue
                 .submit(prefixes.into_iter().chain(std::iter::once(final_command)))
         };
+        drop(submit_guard);
         self.images.commit_pending_mips();
+        if let Some(gaussian) = &mut self.backdrop_gaussian {
+            gaussian.commit_frame();
+        }
         submission
     }
 }
@@ -875,7 +830,7 @@ fn skip_interior_clip(instance: &mut Instance) -> bool {
     false
 }
 
-mod backdrop;
+pub(crate) mod backdrop;
 mod batch;
 mod cache;
 mod effects;

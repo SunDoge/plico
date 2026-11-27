@@ -1,4 +1,5 @@
 #![cfg(feature = "desktop")]
+use plico::widgets::{button, text};
 use plico_desktop::{ServiceView, Source};
 use plico_dev::services::HostService;
 use plico_renderer::{FrameSource, SemanticAction, SemanticRole, TextContext};
@@ -132,8 +133,8 @@ impl plico_dev::services::ServiceApp for ProjectionApp {
         services: &mut plico_dev::services::Services<u64, ()>,
     ) {
         self.observed = *services.snapshot();
-        cx.text("Projection");
-        if cx.button("Advance").clicked() {
+        text(cx, "Projection");
+        if button(cx).text("Advance").clicked() {
             services.send(());
         }
     }

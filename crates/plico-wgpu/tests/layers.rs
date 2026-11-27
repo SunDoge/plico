@@ -638,7 +638,7 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+        .render_frame(&mut scene, &mut text, (800, 600), 1.)
         .unwrap();
     renderer
         .render_scene(&scene, [800, 600], [0.; 4], true)
@@ -647,7 +647,7 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
         clock.advance(Duration::from_millis(30)).unwrap();
         source.update(|view| view.dark = step % 2 == 0);
         source
-            .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+            .render_frame(&mut scene, &mut text, (800, 600), 1.)
             .unwrap();
         renderer
             .render_scene(&scene, [800, 600], [0.; 4], true)
@@ -660,7 +660,7 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
     }
     clock.advance(Duration::from_millis(201)).unwrap();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+        .render_frame(&mut scene, &mut text, (800, 600), 1.)
         .unwrap();
     let settled = renderer
         .render_scene(&scene, [800, 600], [0.; 4], true)
@@ -668,7 +668,7 @@ fn rapid_theme_reversal_does_not_accumulate_isolated_layers() {
     source.set_theme_transition_duration(Duration::ZERO);
     source.request_rebuild();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (800, 600), 1.)
+        .render_frame(&mut scene, &mut text, (800, 600), 1.)
         .unwrap();
     assert_eq!(
         settled,

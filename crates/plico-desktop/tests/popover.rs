@@ -350,9 +350,7 @@ fn glass_popup_pose_frames_reuse_layout_and_move_the_shader_canvas() {
         let mut scene = Scene::new();
         let render =
             |source: &mut Source<GlassPopup>, scene: &mut Scene, text: &mut TextContext| {
-                source
-                    .try_render_retained_frame(scene, text, (640, 480), 1.)
-                    .unwrap();
+                source.render_frame(scene, text, (640, 480), 1.).unwrap();
             };
         render(&mut source, &mut scene, &mut text);
         source.update(|view| view.state.open());
@@ -499,7 +497,7 @@ fn retained_popup_fragments_match_full_encoding_through_reversal() {
             });
         }
         source
-            .try_render_retained_frame(&mut retained, &mut text, size, 1.)
+            .render_frame(&mut retained, &mut text, size, 1.)
             .unwrap();
         reused += source.frame_diagnostics().backend.scene_parts_reused;
         for command in &retained.flattened().commands {
@@ -537,4 +535,84 @@ fn retained_popup_fragments_match_full_encoding_through_reversal() {
     assert!(reused > 0);
     assert!(checked_scaled_text);
     assert!(!source.view().state.is_open());
+}
+
+#[test]
+fn panel_with_inner_scroll_fits_available_room_and_reveals_the_last_button() {
+    struct Room {
+        popup: PopoverState,
+        rows: usize,
+        anchor_offset: f32,
+    }
+
+    impl HostView for Room {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            column(cx)
+                .padding_x(20.)
+                .padding_top(138.)
+                .translate(0., self.anchor_offset)
+                .children(|cx| {
+                    popover(cx, &mut self.popup, "Room")
+                        .material(plico::LiquidGlass {
+                            enabled: false,
+                            ..Default::default()
+                        })
+                        .max_height(256.)
+                        .motion(Motion::None)
+                        .children(|cx| {
+                            for index in 0..self.rows {
+                                cx.keyed(index, |cx| {
+                                    button(cx).height(32.).text(format!("Row {index}"));
+                                });
+                            }
+                        });
+                });
+        }
+    }
+
+    for (rows, anchor_offset) in [(3, 0.), (30, 0.), (3, -220.)] {
+        let mut view = Room {
+            popup: PopoverState::default(),
+            rows,
+            anchor_offset,
+        };
+        view.popup.open();
+        let mut source = Source::new(view);
+        let mut text_context = TextContext::new();
+        source.build_frame(&mut text_context, 400, 330);
+        let snapshot = source.semantics();
+        let trigger = snapshot
+            .node_by_role(SemanticRole::Button, "Room", None)
+            .unwrap();
+        let panel = snapshot
+            .node_by_role(SemanticRole::Dialog, "Room", None)
+            .unwrap();
+        assert!((panel.bounds[1] - (trigger.bounds[3] + 6.).max(8.)).abs() < 1.);
+        assert!(panel.bounds[3] <= 322.);
+        if rows == 30 {
+            assert!((panel.bounds[3] - 322.).abs() < 1.);
+        } else {
+            assert!(panel.bounds[3] < 322.);
+        }
+        let last = format!("Row {}", rows - 1);
+        let last_id = snapshot
+            .nodes
+            .iter()
+            .find(|node| node.label.as_deref() == Some(last.as_str()))
+            .unwrap()
+            .id;
+        assert!(source.handle_semantic_action(SemanticAction::Focus { target: last_id }));
+        source.build_frame(&mut text_context, 400, 330);
+        let snapshot = source.semantics();
+        let last = snapshot
+            .nodes
+            .iter()
+            .find(|node| node.id == last_id)
+            .unwrap();
+        let panel = snapshot
+            .node_by_role(SemanticRole::Dialog, "Room", None)
+            .unwrap();
+        assert!(last.bounds[1] >= panel.bounds[1] && last.bounds[3] <= panel.bounds[3] + 0.5);
+    }
 }

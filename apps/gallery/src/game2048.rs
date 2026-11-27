@@ -376,10 +376,29 @@ fn tile_view(cx: &mut UiContext, tile: &Tile, cell: f32, gap: f32, elapsed: f32,
         _ => 27.,
     } * cell
         / 106.25;
-    column(cx).key(tile.id).absolute(gap, gap).translate(pos[0] * (cell + gap), pos[1] * (cell + gap)).scale(k, k)
-        .width(cell).height(cell).radius(3.).clip(true).justify(Justify::Center).align(Align::Center)
-        .background(Color::Literal(bg)).opacity(if k == 0. { 0. } else { 1. }) + |cx|
-    {
+    let step = cell + gap;
+    let rest = [
+        gap + tile.col as f32 * step,
+        gap + tile.row as f32 * step,
+        cell,
+        cell,
+    ];
+    let size = cell * k;
+    let inset = (cell - size) * 0.5;
+    let shown = [
+        gap + pos[0] * step + inset,
+        gap + pos[1] * step + inset,
+        size,
+        size,
+    ];
+    let pose = PinnedRect::new(rest, shown);
+    let node = column(cx).key(tile.id);
+    let node = if let Some(pose) = pose {
+        node.pinned_rect(pose)
+    } else {
+        node.absolute(rest[0], rest[1]).width(cell).height(cell).opacity(0.)
+    };
+    node.radius(3.).clip(true).justify(Justify::Center).align(Align::Center).background(Color::Literal(bg)) + |cx| {
         plico::text!(cx, "{}", tile.value).font_size((font as u16).max(1)).weight(750)
             .color(if tile.value <= 4 { INK } else { LIGHT });
     };

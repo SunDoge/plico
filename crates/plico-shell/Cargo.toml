@@ -31,6 +31,7 @@ url = { workspace = true }
 [features]
 default = ["wgpu"]
 wgpu = ["dep:plico-wgpu", "dep:pollster"]
+recording = ["wgpu", "plico-wgpu/recording"]
 desktop-integration = ["dep:tray-icon"]
 global-hotkeys = ["dep:plico-native", "plico-native/global-hotkeys"]
 profiling = ["plico-renderer/profiling", "dep:tracing-chrome", "dep:tracing-subscriber"]

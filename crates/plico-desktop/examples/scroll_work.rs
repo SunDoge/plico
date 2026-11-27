@@ -46,7 +46,7 @@ fn main() {
         let mut text = TextContext::new();
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (600, 400), 1.)
+            .render_frame(&mut scene, &mut text, (600, 400), 1.)
             .unwrap();
         let mut times = Vec::new();
         let mut calls = 0;
@@ -66,7 +66,7 @@ fn main() {
                     .handled
             );
             source
-                .render_retained_frame(&mut scene, &mut text, (600, 400), 1.)
+                .render_frame(&mut scene, &mut text, (600, 400), 1.)
                 .unwrap();
             for _ in 0..10 {
                 clock.advance(Duration::from_millis(16)).unwrap();
@@ -76,7 +76,7 @@ fn main() {
                 let before = source.view().calls;
                 let start = Instant::now();
                 source
-                    .render_retained_frame(&mut scene, &mut text, (600, 400), 1.)
+                    .render_frame(&mut scene, &mut text, (600, 400), 1.)
                     .unwrap();
                 let us = start.elapsed().as_secs_f64() * 1e6;
                 assert_eq!(

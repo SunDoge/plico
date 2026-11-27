@@ -24,6 +24,7 @@ impl SvgCache {
     pub fn stats(&self) -> (usize, usize) {
         (self.entries.len(), self.bytes)
     }
+    #[tracing::instrument(level = "debug", target = "plico::perf", name = "wgpu.svg", skip_all)]
     pub fn raster(&mut self, document: &SvgDocument, width: u32, height: u32) -> Result<ImageData> {
         let size = document.0.size();
         if width == 0

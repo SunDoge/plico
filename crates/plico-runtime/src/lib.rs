@@ -12,10 +12,10 @@ use std::{
 };
 use taffy::{geometry::Rect, prelude::*};
 
+pub use plico_renderer::platform::{EffectCompletion, EffectPayload, EffectQueue, EffectRequest};
 pub use plico_renderer::text::FontAsset;
 pub use plico_renderer::{
-    HostAction, KeyEvent, RenderBackend, WakeCallback, WindowCommand, WindowLevel, WindowOptions,
-    WindowResizeEdges,
+    KeyEvent, WakeCallback, WindowCommand, WindowLevel, WindowOptions, WindowResizeEdges,
 };
 
 mod adapter;
@@ -31,6 +31,7 @@ mod scroll_motion;
 mod scrollbar_visibility;
 mod selection;
 mod shader;
+mod shared_match;
 mod slider;
 mod source;
 mod style_motion;
@@ -41,7 +42,7 @@ mod view;
 
 pub(crate) use adapter::Adapter;
 pub use adapter::BackendStats;
-pub(crate) use adapter::{interactive, make_paint, rgb, semantic_id};
+pub(crate) use adapter::{make_paint, rgb, semantic_id};
 pub use source::{BatchStats, FrameDiagnostics, HitTestDiagnostics, Source, SourceError};
 pub use view::{HostView, NativeView};
 
@@ -71,8 +72,7 @@ pub(crate) fn mix_rgb(from: u32, to: u32, amount: f32) -> u32 {
 
 /// Whether a theme's window surface reads as dark (MyGO `Theme.Dark`).
 pub(crate) fn is_dark(theme: Theme) -> bool {
-    let [r, g, b] = [16, 8, 0].map(|shift| ((theme.surface >> shift) & 255) as f32);
-    0.2126 * r + 0.7152 * g + 0.0722 * b < 128.
+    theme.is_dark()
 }
 
 /// Semantic command protocol and deterministic headless test driver.

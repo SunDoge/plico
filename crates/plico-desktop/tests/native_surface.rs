@@ -1,11 +1,13 @@
 #![cfg(not(target_arch = "wasm32"))]
 use plico::prelude::*;
 use plico_desktop::{HostView, SurfaceSource};
-use plico_renderer::platform::effect::{EffectCompletion, EffectPayload, EffectResult};
+use plico_renderer::platform::effect::{
+    EffectCompletion, EffectId, EffectPayload, EffectResult, EffectScope,
+};
 use plico_renderer::{
-    EffectRequest, FrameSource, HostAction, Modifiers, PaintContext, PaintScene, Point,
-    PointerButton, PointerEvent, PointerPhase, Scene, TextContext, UiEvent, Widget,
-    WidgetEventResult, WidgetGeometry,
+    EffectRequest, FrameSource, Modifiers, PaintContext, PaintScene, Point, PointerButton,
+    PointerEvent, PointerPhase, Scene, TextContext, UiEvent, Widget, WidgetEventResult,
+    WidgetGeometry,
 };
 
 struct Demo {
@@ -45,8 +47,8 @@ struct Native {
     point: Option<Point>,
     mounts: usize,
     geometries: Vec<WidgetGeometry>,
-    action: Option<HostAction>,
-    clipboard: Option<(u64, Option<String>)>,
+    action: Option<EffectRequest>,
+    clipboard: Option<(EffectId, Option<String>)>,
 }
 impl Widget for Native {
     fn mounted(&mut self) -> plico_renderer::WidgetChanges {
@@ -81,11 +83,13 @@ impl Widget for Native {
     fn accepts_text_input(&self) -> bool {
         true
     }
-    fn take_host_action(&mut self) -> Option<HostAction> {
+    fn take_effect(&mut self) -> Option<EffectRequest> {
         self.action.take()
     }
-    fn deliver_clipboard_text(&mut self, id: u64, text: Option<String>) {
-        self.clipboard = Some((id, text))
+    fn complete_effect(&mut self, completion: EffectCompletion) {
+        if let EffectResult::ClipboardText(text) = completion.result {
+            self.clipboard = Some((completion.id, text));
+        }
     }
 }
 fn pointer(x: f64, y: f64) -> UiEvent {
@@ -109,8 +113,10 @@ fn layout_local_input_ime_and_visibility_preserve_native_instance() {
         "surface",
     );
     let mut text = TextContext::new();
-    s.set_device_scale(2.);
-    let nodes = s.build_frame(&mut text, 300, 220);
+    let mut scene = Scene::new();
+    s.render_frame(&mut scene, &mut text, (300, 220), 2.)
+        .unwrap();
+    assert!(!scene.commands.is_empty());
     let geometry = s.widget.geometries.last().unwrap();
     assert_eq!(geometry.content_size, [150., 100.]);
     assert_eq!(geometry.device_scale, 2.);
@@ -123,9 +129,6 @@ fn layout_local_input_ime_and_visibility_preserve_native_instance() {
         s.ime_state().unwrap().cursor_area,
         [x + 1., y + 2., x + 3., y + 4.]
     );
-    let mut scene = Scene::new();
-    s.paint_scene(&mut scene, &nodes, &mut text, (300, 220), 2.);
-    assert!(!scene.commands.is_empty());
     s.source.update(|view| view.show = false);
     s.build_frame(&mut text, 300, 220);
     assert!(!s.widget.focused);
@@ -147,8 +150,11 @@ fn higher_plico_controls_win_hits_and_clipboard_actions_use_effects() {
     s.build_frame(&mut text, 300, 220);
     s.handle_event(pointer(30., 30.));
     assert!(s.widget.point.is_none());
-    s.widget.action = Some(HostAction::ReadClipboard { request_id: 17 });
-    assert!(s.take_host_action().is_none());
+    s.widget.action = Some(EffectRequest {
+        id: EffectId(17),
+        scope: EffectScope::Runtime,
+        payload: EffectPayload::ClipboardRead,
+    });
     let EffectRequest { id, payload, .. } = s.take_effect().unwrap();
     assert_eq!(payload, EffectPayload::ClipboardRead);
     s.complete_effect(EffectCompletion {
@@ -156,7 +162,69 @@ fn higher_plico_controls_win_hits_and_clipboard_actions_use_effects() {
         op: payload.op(),
         result: EffectResult::ClipboardText(Some("reply".into())),
     });
-    assert_eq!(s.widget.clipboard, Some((17, Some("reply".into()))));
+    assert_eq!(
+        s.widget.clipboard,
+        Some((EffectId(17), Some("reply".into())))
+    );
+}
+
+#[test]
+fn surface_routes_concurrent_view_and_widget_completions_with_their_original_ids() {
+    #[derive(Default)]
+    struct Client {
+        pending: Option<EffectRequest>,
+        reply: Option<EffectCompletion>,
+    }
+    impl HostView for Client {
+        fn show(&mut self, _: &mut UiContext) {}
+
+        fn take_effect(&mut self) -> Option<EffectRequest> {
+            self.pending.take()
+        }
+
+        fn complete_effect(&mut self, completion: EffectCompletion) -> bool {
+            self.reply = Some(completion);
+            true
+        }
+    }
+
+    let request = EffectRequest {
+        id: EffectId(1),
+        scope: EffectScope::Runtime,
+        payload: EffectPayload::ClipboardRead,
+    };
+    let view = Client {
+        pending: Some(request.clone()),
+        ..Client::default()
+    };
+    let widget = Native {
+        action: Some(request),
+        ..Native::default()
+    };
+    let mut source = SurfaceSource::new(view, widget, "slot");
+
+    let widget = source.take_effect().unwrap();
+    let view = source.take_effect().unwrap();
+    assert_ne!(widget.id, view.id);
+
+    for (request, value) in [(view, "view response"), (widget, "widget response")] {
+        source.complete_effect(EffectCompletion {
+            id: request.id,
+            op: request.payload.op(),
+            result: EffectResult::ClipboardText(Some(value.into())),
+        });
+    }
+
+    let completion = source.source.view().reply.as_ref().unwrap();
+    assert_eq!(completion.id, EffectId(1));
+    assert_eq!(
+        completion.result,
+        EffectResult::ClipboardText(Some("view response".into()))
+    );
+    assert_eq!(
+        source.widget.clipboard,
+        Some((EffectId(1), Some("widget response".into())))
+    );
 }
 
 #[test]
@@ -222,38 +290,4 @@ fn hidden_history_slot_cannot_capture_the_visible_pages_widget() {
         assert_eq!(source.viewport_rect().unwrap()[2], expected_width);
         assert_eq!(source.widget.mounts, 1);
     }
-}
-
-#[test]
-fn headless_profiler_preserves_last_sample_when_declaration_fails() {
-    struct Label(bool);
-    impl HostView for Label {
-        fn show(&mut self, cx: &mut UiContext) {
-            cx.text("first").key("label");
-            if self.0 {
-                cx.text("second").key("label");
-            }
-        }
-    }
-    let mut source = plico_desktop::Source::new(Label(false));
-    let mut text = TextContext::new();
-    let mut profiler = plico_shell::headless::HeadlessFrameProfiler::default();
-    let background = source.base_color();
-    profiler
-        .build(&mut source, &mut text, 320, 200, 1., background)
-        .unwrap();
-    let previous = profiler.stats();
-    source.update(|label| label.0 = true);
-    let result = profiler.build(&mut source, &mut text, 320, 200, 1., background);
-    assert!(
-        result
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("duplicate UI key")
-    );
-    assert_eq!(
-        profiler.stats().sample_build_frame_ms,
-        previous.sample_build_frame_ms
-    );
 }

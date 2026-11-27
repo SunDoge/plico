@@ -188,8 +188,8 @@ impl TerminalWidget {
             "sync-window-title" => {
                 let enabled = matches!(value, "" | "true" | "1");
                 if self.sync_window_title && !enabled {
-                    self.pending_host_actions
-                        .push_back(HostAction::SetWindowTitle(None));
+                    self.effects
+                        .push(EffectPayload::window(WindowCommand::RestoreTitle));
                 }
                 self.sync_window_title = enabled;
             }
@@ -499,8 +499,8 @@ impl TerminalWidget {
                     .as_deref()
                     == Some(pending.url.as_str())
             {
-                self.pending_host_actions
-                    .push_back(HostAction::OpenUrl(pending.url));
+                self.effects
+                    .push(EffectPayload::OpenUrl { url: pending.url });
             }
             return TerminalInputResult::Handled;
         }

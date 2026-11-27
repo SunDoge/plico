@@ -245,11 +245,13 @@ impl DamageRects {
 /// Call [`Self::invalidate`] after any failed draw/submission or content loss.
 #[derive(Default)]
 pub struct SceneDamageTracker {
+    unchanged_backdrop_inputs: Vec<usize>,
     regions: DamageRects,
     previous: Option<crate::Scene>,
     bounds: Vec<DamageRegion>,
     contexts: Vec<Option<Rect>>,
     nonlocal: bool,
+    isolated_gaussian_damage: bool,
     size: Option<(u32, u32)>,
 }
 impl DamageRegion {
@@ -263,9 +265,24 @@ impl DamageRegion {
     }
 }
 impl SceneDamageTracker {
+    /// Readers whose sampling rectangle does not intersect any change in
+    /// their painter prefix. The backend must pass the exact captured extent
+    /// before using this result to reuse a snapshot.
+    pub fn unchanged_backdrop_inputs(&self) -> &[usize] {
+        &self.unchanged_backdrop_inputs
+    }
     /// Opt into up to eight disjoint rectangles; otherwise accumulate one bounding rect.
     pub fn set_multi_rect_damage(&mut self, enabled: bool) {
         self.regions.limit = if enabled { 8 } else { 1 };
+    }
+    /// Allow a Gaussian-filtered group to invalidate its complete output clip.
+    /// The backend must rerasterize the entire isolated source and its halo
+    /// before replaying any part of its composited output.
+    pub fn set_isolated_gaussian_damage(&mut self, enabled: bool) {
+        if self.isolated_gaussian_damage != enabled {
+            self.invalidate();
+            self.isolated_gaussian_damage = enabled;
+        }
     }
     /// Damage rectangles from the most recent update.
     pub fn damage_rects(&self) -> &DamageRects {
@@ -284,6 +301,7 @@ impl SceneDamageTracker {
     pub fn invalidate(&mut self) {
         self.previous = None;
         self.regions.clear();
+        self.unchanged_backdrop_inputs.clear();
         self.regions.add(DamageRegion::Full);
         self.bounds.clear();
         self.contexts.clear();
@@ -344,29 +362,58 @@ impl SceneDamageTracker {
         scene: &crate::Scene,
         width: u32,
         height: u32,
+        ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+        backdrop_input: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+    ) -> DamageRegion {
+        self.update_indexed_with_backdrop_groups(
+            scene,
+            [width, height],
+            ink,
+            backdrop_input,
+            |_| None,
+        )
+    }
+
+    /// Also track isolated groups whose backend rerasterizes the whole source
+    /// and composites it over a freshly replayed parent prefix. Group bounds
+    /// are keyed by the opening command and contain (input, output).
+    pub fn update_indexed_with_backdrop_groups(
+        &mut self,
+        scene: &crate::Scene,
+        [width, height]: [u32; 2],
         mut ink: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
         mut backdrop_input: impl FnMut(usize, &crate::PaintCommand) -> Option<Rect>,
+        mut backdrop_group: impl FnMut(usize) -> Option<(Rect, Rect)>,
     ) -> DamageRegion {
         use crate::PaintCommand;
         use kurbo::Shape;
         self.regions.clear();
+        self.unchanged_backdrop_inputs.clear();
         if self.previous.is_none() || self.size != Some((width, height)) || self.nonlocal {
             self.regions.add(DamageRegion::Full);
         }
         self.nonlocal = false;
         let mut dependencies = Vec::new();
-        let mut clips: Vec<Option<Rect>> = Vec::new();
+        let mut clips = Vec::new();
         let mut clip: Option<Rect> = None;
+        let mut changes = 0;
         for (index, command) in scene.commands.iter().enumerate() {
             let context = clip;
-            let input = match command {
-                PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
-                    backdrop_input(index, command)
-                        .filter(|r| finite(*r))
-                        .map(|r| DamageRegion::Rect(r.inflate(1., 1.)).for_surface(width, height))
-                }
-                _ => None,
+            let group = if matches!(command, PaintCommand::PushLayer { .. }) {
+                backdrop_group(index)
+            } else {
+                None
             };
+            let input = group
+                .map(|(input, _)| input)
+                .or_else(|| match command {
+                    PaintCommand::Shader { effect, .. } if effect.reads_backdrop() => {
+                        backdrop_input(index, command)
+                    }
+                    _ => None,
+                })
+                .filter(|r| finite(*r))
+                .map(|r| DamageRegion::Rect(r.inflate(1., 1.)).for_surface(width, height));
             let same_command =
                 self.previous.as_ref().and_then(|s| s.commands.get(index)) == Some(command);
             let bounds = match command {
@@ -377,28 +424,48 @@ impl SceneDamageTracker {
                     blend,
                     ..
                 } => {
-                    if layer_requires_full_damage(*blend, filter.is_some()) {
+                    let isolated_gaussian = self.isolated_gaussian_damage
+                        && filter.as_deref().is_some_and(|filter| {
+                            crate::filter::GaussianBlur::from_filter(filter).is_some()
+                        });
+                    if layer_requires_full_damage(*blend, filter.is_some() && !isolated_gaussian) {
                         self.regions.add(DamageRegion::Full);
                         self.nonlocal = true;
                     }
-                    clips.push(clip);
                     let r = transform.transform_rect_bbox(path.bounding_box());
-                    clip = Some(clip.map_or(r, |outer| outer.intersect(r)));
-                    clip_region(clip)
+                    let layer_clip = clip.map_or(r, |outer| outer.intersect(r));
+                    let bounds = group.map_or_else(
+                        || clip_region(Some(layer_clip)),
+                        |(_, output)| DamageRegion::Rect(output.inflate(1., 1.)),
+                    );
+                    let atomic =
+                        (isolated_gaussian || group.is_some()).then_some((changes, bounds));
+                    clips.push((clip, atomic));
+                    clip =
+                        Some(group.map_or(layer_clip, |(_, output)| output.intersect(layer_clip)));
+                    bounds
                 }
                 PaintCommand::PushClip {
                     transform,
                     clip: path,
                 } => {
-                    clips.push(clip);
+                    clips.push((clip, None));
                     let r = transform.transform_rect_bbox(path.bounding_box());
                     clip = Some(clip.map_or(r, |outer| outer.intersect(r)));
                     clip_region(clip)
                 }
                 PaintCommand::PopLayer => {
-                    let bounds = clip_region(clip);
+                    let mut bounds = clip_region(clip);
                     match clips.pop() {
-                        Some(parent) => clip = parent,
+                        Some((parent, atomic)) => {
+                            if let Some((start, output)) = atomic {
+                                bounds = output;
+                                if changes != start {
+                                    self.regions.add(output.for_surface(width, height));
+                                }
+                            }
+                            clip = parent;
+                        }
                         None => self.regions.add(DamageRegion::Full),
                     }
                     bounds
@@ -432,8 +499,20 @@ impl SceneDamageTracker {
                 },
             }
             .for_surface(width, height);
+            let prefix_changed = input.is_some_and(|input| {
+                self.regions.is_full()
+                    || self
+                        .regions
+                        .rects()
+                        .iter()
+                        .any(|r| input.intersects(DamageRegion::Rect(*r)))
+            });
+            if input.is_some() && !prefix_changed {
+                self.unchanged_backdrop_inputs.push(index);
+            }
             let changed = !same_command || self.bounds.get(index) != Some(&bounds);
             if changed {
+                changes += 1;
                 self.regions.add(bounds);
                 if let Some(old) = self.bounds.get(index) {
                     self.regions.add(*old);
@@ -442,13 +521,7 @@ impl SceneDamageTracker {
             if let Some(input) = input {
                 // Only the painter prefix can change this effect's input.
                 // Marking its output now forwards changes to subsequent readers.
-                if self.regions.is_full()
-                    || self
-                        .regions
-                        .rects()
-                        .iter()
-                        .any(|r| input.intersects(DamageRegion::Rect(*r)))
-                {
+                if prefix_changed {
                     self.regions.add(bounds);
                 }
                 dependencies.push((input, bounds));
@@ -516,6 +589,7 @@ impl SceneDamageTracker {
                 if !matches!(
                     command,
                     PaintCommand::Paragraph { .. }
+                        | PaintCommand::MovingParagraph { .. }
                         | PaintCommand::Fragment { .. }
                         | PaintCommand::Stroke { .. }
                         | PaintCommand::GlyphRun { .. }

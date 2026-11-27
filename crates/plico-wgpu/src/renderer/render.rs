@@ -1,6 +1,22 @@
 use super::*;
 
 impl Renderer {
+    #[cfg(all(feature = "recording", not(target_arch = "wasm32")))]
+    pub(crate) fn copy_retained_frame(
+        &self,
+        reuse: Option<crate::RetainedFrameReadback>,
+    ) -> Option<crate::RetainedFrameReadback> {
+        let target = self.target.as_ref()?;
+        Some(crate::RetainedFrameReadback::copy(
+            &self.device,
+            &self.queue,
+            &target.texture,
+            target.size,
+            target.pitch,
+            reuse,
+        ))
+    }
+
     /// Render one backdrop-reading effect between the halves of the frame
     /// pass: the caller has just dropped the pass, so the target holds
     /// everything painted before the effect. Copy the effect's region out,

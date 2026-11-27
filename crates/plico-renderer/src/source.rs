@@ -1,6 +1,6 @@
 //! The frame-producer contract a host implements to drive a native window or browser canvas.
 //!
-//! Hosts may use `render_retained_frame` to avoid exporting an owned layout list,
+//! Hosts may use `render_frame` to avoid exporting an owned layout list,
 //! falling back to `build_frame` and `paint_scene` for other sources. `has_anim` gates the continuous-redraw loop: a
 //! reactive source (e.g. the SolidJS applier) returns true while rAF callbacks
 //! are queued; a static source returns false so the loop idles until a resize.
@@ -94,7 +94,7 @@ pub struct ImeState {
 
 pub use crate::platform::event::*;
 pub use crate::platform::{
-    RenderBackend, WindowCommand, WindowInputMode, WindowLevel, WindowOptions, WindowResizeEdges,
+    WindowCommand, WindowInputMode, WindowLevel, WindowOptions, WindowResizeEdges,
 };
 
 /// Failure produced while a [`FrameSource`] constructs or encodes a frame.
@@ -138,10 +138,6 @@ pub trait FrameSource {
 
     /// Schedule a backend-owned repaint without an unconditional frame loop.
     fn native_widget_repaint_after(&mut self, _delay: std::time::Duration) {}
-
-    /// Inform the source of the physical-pixels-per-logical-pixel ratio before
-    /// it builds widget scene fragments for this frame.
-    fn set_device_scale(&mut self, _scale: f64) {}
 
     /// Serialize the source's persisted-state storage for durable host
     /// persistence (MyGO's WindowStateStore contract: a host file holds every
@@ -199,31 +195,15 @@ pub trait FrameSource {
         );
     }
 
-    /// Prepare, encode and compose a retained frame without exporting owned nodes.
-    /// Returning `Ok(None)` leaves the frame untouched and asks the host to use build_frame.
-    /// A successful implementation includes paint_debug_overlay and returns
-    /// (node_count, build_frame_ms, scene_ms), with CPU durations in milliseconds.
-    fn render_retained_frame(
-        &mut self,
-        _scene: &mut Scene,
-        _tcx: &mut TextContext,
-        _size: (u32, u32),
-        _scale: f64,
-    ) -> Result<Option<(usize, f64, f64)>, FrameSourceError> {
-        Ok(None)
-    }
-
-    /// Build a frame and encode it into `scene` in one pass. Returns
-    /// `(node_count, build_frame_ms, scene_ms)`. Sources whose paint reads
-    /// retained state override this to skip materializing the node list for
-    /// the host; the default composes [`Self::build_frame`] with
-    /// [`Self::paint_scene`] and [`Self::paint_debug_overlay`].
-    fn build_and_paint(
+    /// Render one frame at the given logical size and physical-pixel scale.
+    /// Returns (node count, build milliseconds, scene milliseconds).
+    /// Sources can override this to paint retained state directly. The default
+    /// builds a checked node list, paints it and adds the debug overlay.
+    fn render_frame(
         &mut self,
         scene: &mut Scene,
         tcx: &mut TextContext,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
         scale: f64,
     ) -> Result<(usize, f64, f64), FrameSourceError> {
         tcx.set_native_paragraph_scale(scale);
@@ -315,11 +295,6 @@ pub trait FrameSource {
     /// whether the completion can have changed the next rendered frame.
     fn poll_async(&mut self) -> bool {
         false
-    }
-
-    /// Drain one native host action produced by asynchronous work.
-    fn take_host_action(&mut self) -> Option<HostAction> {
-        None
     }
 
     /// Drain one typed desktop effect. Unlike render ops, effects represent

@@ -26,7 +26,7 @@ wgpu 已按背景依赖局部失效，并将同阶段等尺寸副本合并为有
 
 可选 `plico-desktop/desktop-integration` 提供声明式托盘菜单、菜单事件、
 关闭后隐藏／恢复、Linux StatusNotifier 宿主探测和消失恢复、可点击系统通知，
-通过 `run_source_with_extensions` 接入同一原生事件循环。
+通过 `EventLoopOptions::extensions` 接入 `run_windows` 的原生事件循环。
 普通 NotificationShow effect 与可点击通知共享系统通知构造逻辑。
 通知监听最多一个；应用拥有通知内容、偏好存储与业务动作。
 已有独立桌面示例和框架单元测试；Linux X11/D-Bus 原生路径由独立消费应用回归。
@@ -38,7 +38,7 @@ macOS/Windows 原生与打包身份验证尚未完成，不包含开机启动、
 `WindowOptions` 支持初始位置、最大化和无边框全屏，`WindowCommand::SetFullscreen` /
 `ToggleFullscreen` 可在运行时切换，`WindowMetrics.fullscreen` 向应用报告当前状态。
 `WindowStatePersistence` 保存普通尺寸、外框位置以及最大化／全屏标志，关闭和退出时原子写入；
-旧的仅含尺寸的 JSON 仍然兼容。`run_with_persistence` 默认在应用数据目录恢复
+旧的仅含尺寸的 JSON 仍然兼容。`EventLoopOptions::persist_app` 在应用数据目录恢复
 `window-state.json`。
 
 无系统标题栏窗口已按平台拆分外框：macOS 使用 Core Animation continuous corner 与
@@ -259,7 +259,7 @@ cache recycling and a GPU-only winit window demo. It supports analytical shared 
 Default shared-scene damage replay (`PLICO_WGPU_DAMAGE=0` disables it) preserves its color
 target and skips unchanged presentation; local GPU pixel-oracle tests and an Xvfb
 window exercise pass. A controlled [Linux damage benchmark](experiments/wgpu-damage.md) now records local GPU gains and a scrolling CPU regression; broader application performance and physical-display verification remain pending.
-`plico_wgpu::FrameBudget` reports per-frame prepare/upload/encode/submit/wait CPU
+`plico_renderer::FrameBudgetSample` reports per-frame prepare/upload/encode/submit/wait CPU
 time, upload bytes, instance and draw counts, and optional root-encoder GPU
 timestamps (`PLICO_GPU_TIMER=1`). The shell HUD and the offscreen `--frames`
 capture expose it; definitions and measurement caveats are in

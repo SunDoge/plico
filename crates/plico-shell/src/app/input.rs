@@ -229,7 +229,6 @@ impl App {
             | self.poll_modal_effects()
             | self.poll_effect_completions()
             | self.source.poll_async()
-            | self.drain_host_actions()
             | self.drain_effects()
     }
 }

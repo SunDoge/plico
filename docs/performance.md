@@ -169,12 +169,18 @@ Lyrune 同时将歌词位移从逐行绝对位置改为共同容器的 translate
 同一 CPU 探针在这组修改后，带图构建中位数为 74.0µs，p95 为 94.2µs；
 这些数字仍不包含窗口呈现、GPU 或音频线程。
 
-## Damage 覆盖率测量（Phase 0）
+## Damage 覆盖率测量
 
-`FrameStats::damage_coverage` 记录上次成功绘制中实际重绘的目标 image 比例，
-不是均值，也不包含失败的提交。Skia 提供该指标；不支持的后端为 None，HUD
-显示 n/a。`PLICO_PERFORMANCE_HUD=1` 在既有帧耗时下方显示 Damage。
-trace 的 `plico::perf / damage_coverage` 使用同一已应用区域。
+`PLICO_PERFORMANCE_HUD=1` 打开独立的诊断窗口，采样应用第一个窗口的帧数据。
+HUD 每秒最多刷新十次，关闭 HUD 不影响主窗口。主窗口的脏区统计不包含 HUD。
+独立 HUD 用不透明底板。`PLICO_PERFORMANCE_HUD=inline` 将 HUD 绘制在应用窗口内，
+使用半透明底板，此模式下 HUD 会计入该窗口的脏区。
+wgpu 先合并并扩张脏矩形，
+然后用矩形覆盖的物理像素面积除以窗口目标面积。覆盖达到 50% 时，wgpu 会整帧重绘，
+HUD 仍显示回退前的覆盖率。trace 中的 `wgpu scene damage` 同时输出
+`damage_coverage`、`damage_rect_count` 和 `full_redraw`。
+
+如果要测纯应用的 GPU 耗时，关闭 HUD 后再采 trace，以排除第二个窗口的 GPU 工作。
 
 旧的 `Adapter::damage()` 与累计 partial 估计已删除：它依赖节点 dirty 队列，
 不完整覆盖旧 ink、阴影和 overflow；保留两套同名统计容易造成误解。
@@ -183,7 +189,7 @@ HUD 本身会改 scene，测量正式 CPU 收益时关闭 HUD，使用 trace/外
 
 ## Frame budget 测量（CPU 阶段与 GPU 时间）
 
-`plico_wgpu::FrameBudget` 记录最近一帧渲染器的工作，窗口宿主经
+`plico_renderer::FrameBudgetSample` 记录最近一帧渲染器的工作，窗口宿主经
 `FrameStats::apply_budget` 以 EMA 合并到既有诊断；计数类字段保留当帧原值。
 
 与 MyGO 的逐帧阶段日志一致，`FrameStats` 同时保留一组不做 EMA 的相关样本：
@@ -915,7 +921,7 @@ XWayland 验证了持续窗口 workload，没有把该结果推广到 Wayland �
 根 `CommandEncoder`。每个子层仍使用独立且跨帧复用的 uniform/instance buffer，因此
 递归编码不会让后续 `write_buffer` 改写父层已经引用的数据。只有遍历场景时新发现的图片
 mip 链保留一个必须先执行的前缀 command buffer：普通帧一个 command buffer，冷图片帧
-最多两个，仍由一次 `queue.submit` 提交。`FrameBudget::command_buffers` 明确报告这个数。
+最多两个，仍由一次 `queue.submit` 提交。`FrameBudgetSample::command_buffers` 明确报告这个数。
 `PLICO_SPLIT_SUBMITS=1` 仅用于把这些 buffer 分开提交的诊断 A/B。
 
 本机 `effects-glass-hover` 场景中，实际提交次数从 6 降到 1。Intel iGPU 离屏 capture

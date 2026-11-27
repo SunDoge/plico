@@ -1,0 +1,13 @@
+[package]
+name = "signal-desk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+plico.workspace = true
+plico-dev.workspace = true
+plico-desktop = { path = "../../crates/plico-desktop", default-features = false, features = ["wgpu"] }
+snafu.workspace = true
+usage-rs.workspace = true

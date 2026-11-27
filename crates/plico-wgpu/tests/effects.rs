@@ -71,7 +71,7 @@ fn render(
 ) -> [u8; 4] {
     let mut scene = Scene::new();
     source
-        .render_retained_frame(&mut scene, text, (64, 64), scale)
+        .render_frame(&mut scene, text, (64, 64), scale)
         .unwrap();
     if !source.view().0.invalid {
         assert_eq!(
@@ -455,7 +455,7 @@ struct U { size: vec2f, time: f32, progress: f32, color: vec3f, alpha: f32 };
     let mut draw = |source: &mut Source<NativeView<Named>>| {
         let mut scene = Scene::new();
         source
-            .render_retained_frame(&mut scene, &mut text, (64, 64), 1.)
+            .render_frame(&mut scene, &mut text, (64, 64), 1.)
             .unwrap();
         let rgba = renderer
             .render_scene(&scene, [64, 64], [0.; 4], true)
@@ -623,6 +623,166 @@ fn builtin_liquid_glass_renders_a_local_pane() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Fill, Gradient};
+    use plico_renderer::PaintScene;
+
+    struct Pane {
+        material: Option<plico::LiquidGlass>,
+        radius: f32,
+        smoothing: f32,
+    }
+
+    impl plico::View for Pane {
+        fn theme(&self) -> Theme {
+            Theme {
+                surface: 0,
+                ..Theme::dark()
+            }
+        }
+
+        fn show(&mut self, cx: &mut UiContext<'_>) {
+            let capsule = column(cx)
+                .absolute(16., 12.2)
+                .width(120.)
+                .height(37.)
+                .radius(self.radius)
+                .corner_smoothing(self.smoothing);
+            if let Some(material) = self.material {
+                capsule.material(material).end();
+            } else {
+                capsule.background(Color::Literal(0xffffff)).end();
+            }
+        }
+    }
+
+    let scale = 1.25;
+    let viewport = (160, 64);
+    let output = [200, 80];
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let mut text = TextContext::new();
+    let mut draw = |material, radius, smoothing, with_backdrop| {
+        let mut source = Source::new(NativeView(Pane {
+            material,
+            radius,
+            smoothing,
+        }));
+        let mut pane = Scene::new();
+        source
+            .render_frame(&mut pane, &mut text, viewport, scale)
+            .unwrap();
+        assert_eq!(source.shader_diagnostics().count(), 0);
+        let mut scene = Scene::new();
+        if with_backdrop {
+            let gradient = Gradient::new_linear((20., 40.), (175., 55.)).with_stops([
+                peniko::Color::from_rgb8(13, 40, 215),
+                peniko::Color::from_rgb8(245, 190, 30),
+            ]);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &gradient,
+                None,
+                &Rect::new(0., 0., 200., 80.),
+            );
+        }
+        scene.append_scene(pane, Affine::IDENTITY);
+        renderer
+            .render_scene(&scene, output, [0., 0., 0., 1.], false)
+            .unwrap()
+    };
+    let opaque = plico::LiquidGlass {
+        style: plico::GlassStyle::Regular,
+        tint: Color::Literal(0xffffff),
+        tint_opacity: 1.,
+        refraction: 0.,
+        rim: 0.,
+        ..plico::LiquidGlass::default()
+    };
+    let glass = draw(Some(opaque), 18.5, 1., false);
+    let solid = draw(None, 18.5, 1., false);
+    let red = |pixels: &[u8], x: usize, y: usize| f32::from(pixels[(y * 200 + x) * 4]);
+    let glass_center = red(&glass, 95, 37);
+    let solid_center = red(&solid, 95, 37);
+    assert!(glass_center > 230. && solid_center > 230.);
+
+    // Both the flat section and the curved shoulder include partially covered pixels.
+    let mut antialiased_pixels = 0;
+    for y in [15, 16] {
+        for x in 32..64 {
+            let expected = red(&solid, x, y) / solid_center;
+            if (0. ..1.).contains(&expected) && expected > 0. {
+                antialiased_pixels += 1;
+            }
+            let actual = red(&glass, x, y) / glass_center;
+            assert!(
+                (expected - actual).abs() <= 0.055,
+                "coverage at ({x}, {y}): solid {expected}, glass {actual}"
+            );
+        }
+    }
+    assert!(antialiased_pixels >= 8);
+
+    // A 0.01 logical pixel radius step must not flash when the corners meet,
+    // including on refracted pixels and the rim over a colored backdrop.
+    for (material, with_backdrop) in [(opaque, false), (plico::LiquidGlass::default(), true)] {
+        let capsule = draw(Some(material), 18.5, 1., with_backdrop);
+        for smoothing in [0., 1.] {
+            let before = draw(Some(material), 18.49, smoothing, with_backdrop);
+            for (index, (after, before)) in capsule.iter().zip(&before).enumerate() {
+                let delta = after.abs_diff(*before);
+                assert!(
+                    delta <= 4,
+                    "capsule transition at byte {index} with smoothing {smoothing} and backdrop {with_backdrop}: {delta} levels"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn capsule_mask_matches_the_webgl_reference_at_fractional_scale() {
+    use kurbo::Affine;
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+
+    let (helpers, _) = plico_renderer::shader::LIQUID_GLASS_WGSL
+        .split_once("fn plico_effect(")
+        .unwrap();
+    let probe = r#"
+        fn plico_effect(uv: vec2f) -> vec4f {
+            let p = (uv * vec2f(200., 80.) - vec2f(95., 38.375)) / 1.25;
+            let distance = glass_contour_field(p, vec2f(120., 37.), 18.5, 0.);
+            return vec4f(0., 0., 0., web_glass_coverage(distance));
+        }
+    "#;
+    let source = ShaderEffectSource::with_backdrop(&format!("{helpers}{probe}"), true).unwrap();
+    let mut text = TextContext::new();
+    let mut paint = plico_renderer::widget::PaintContext::new(200., 80., 1., &mut text);
+    paint.draw_shader_effect(ShaderEffectId::new(), source, 0., [].into());
+    let mut scene = Scene::new();
+    scene.append_scene(paint.finish(), Affine::IDENTITY);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [200, 80], [0.; 4], false)
+        .unwrap();
+
+    // The same signed distance and coverage from engine.ts (48d2260), run
+    // in WebGL2 at 125%. Compare linear coverage via the WGPU alpha channel.
+    for (y, reference) in [(14, [11, 11, 11]), (15, [174, 174, 172])] {
+        for (x, expected) in [44, 85, 147].into_iter().zip(reference) {
+            let alpha = pixels[(y * 200 + x) * 4 + 3];
+            assert!(
+                alpha.abs_diff(expected) <= 2,
+                "coverage at ({x}, {y}): {alpha} vs {expected}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn builtin_liquid_glass_uses_reusable_mygo_fixed_gaussian_path() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill};
@@ -712,6 +872,62 @@ fn builtin_liquid_glass_uses_reusable_mygo_fixed_gaussian_path() {
     let after_gap = fast.layer_pool_stats();
     assert_eq!(after_gap.backdrop_allocations, first.backdrop_allocations);
     assert!(after_gap.backdrop_reuses > reused.backdrop_reuses);
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn fixed_backdrop_reuses_only_the_unchanged_local_prefix() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let source = ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true)
+        .unwrap()
+        .with_backdrop_prefilter(Some(10.))
+        .unwrap()
+        .with_builtin(Some(plico::ShaderBuiltin::LiquidGlass))
+        .unwrap();
+    let mut text = TextContext::new();
+    let id = ShaderEffectId::new();
+    let mut incremental = pollster::block_on(Renderer::new()).unwrap();
+    let mut reference = pollster::block_on(Renderer::new()).unwrap();
+    let size = [192, 160];
+    for frame in 0..5 {
+        let mut scene = Scene::new();
+        let mut fill = |rect: Rect, color| {
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &rect);
+        };
+        fill(Rect::new(0., 0., 192., 160.), Color::from_rgb8(20, 90, 110));
+        fill(
+            Rect::new(24., 25., 43., 45.),
+            if frame >= 2 {
+                Color::WHITE
+            } else {
+                Color::BLACK
+            },
+        );
+        fill(
+            Rect::new(170., 121., 182., 131.),
+            if frame >= 3 {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            },
+        );
+        let mut paint = plico_renderer::widget::PaintContext::new(48., 40., 1., &mut text);
+        paint.draw_shader_effect(id, source.clone(), frame as f32 * 0.1, Vec::new().into());
+        let x = if frame == 4 { 24. } else { 20. };
+        scene.append_scene(paint.finish(), Affine::translate((x, 20.)));
+
+        let actual = incremental
+            .render_scene(&scene, size, [0.; 4], true)
+            .unwrap();
+        let expected = reference
+            .render_scene(&scene, size, [0.; 4], false)
+            .unwrap();
+        assert_eq!(actual, expected, "stale backdrop at frame {frame}");
+        let copied = matches!(frame, 0 | 2 | 4);
+        assert_eq!(incremental.batch_stats().backdrop_copies, u64::from(copied));
+    }
 }
 
 #[test]

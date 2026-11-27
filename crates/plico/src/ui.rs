@@ -236,6 +236,13 @@ impl<'e> UiContext<'e> {
     pub fn layout_size(&self) -> Option<[f32; 2]> {
         self.engine.layout_size(self.parent)
     }
+    /// The current container's last presented border box in window coordinates,
+    /// as `[left, top, right, bottom]`, before ancestor clipping. Reading it
+    /// opts into geometry feedback even on otherwise presentation-only frames.
+    pub fn presentation_bounds(&self) -> Option<[f32; 4]> {
+        self.engine.presentation_bounds(self.parent)
+    }
+
     /// Request a logical vertical offset for the current scroll container.
     pub fn scroll_to_y(&mut self, offset: f32) {
         if offset.is_finite() && offset >= 0. {
@@ -280,7 +287,7 @@ impl<'e> UiContext<'e> {
     }
     /// Unstyled button behavior with a mandatory accessible name and composable content.
     #[inline(always)]
-    pub fn button_base<'u, 't>(
+    pub(crate) fn button_base<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
     ) -> ButtonBase<'u, 'e, 't> {
@@ -290,15 +297,15 @@ impl<'e> UiContext<'e> {
         }
     }
     #[inline(always)]
-    pub fn column(&mut self) -> Layout<'_, 'e> {
+    pub(crate) fn column(&mut self) -> Layout<'_, 'e> {
         self.layout(Kind::Column)
     }
     #[inline(always)]
-    pub fn grid(&mut self) -> Layout<'_, 'e> {
+    pub(crate) fn grid(&mut self) -> Layout<'_, 'e> {
         self.column().display(crate::Display::Grid)
     }
     #[inline(always)]
-    pub fn row(&mut self) -> Layout<'_, 'e> {
+    pub(crate) fn row(&mut self) -> Layout<'_, 'e> {
         self.layout(Kind::Row)
     }
     #[inline(always)]
@@ -317,10 +324,11 @@ impl<'e> UiContext<'e> {
             accordion_items: false,
             material: None,
             glass_group: false,
+            shared_element: None,
         }
     }
     #[inline(always)]
-    pub fn text_input<'u, 't>(
+    pub(crate) fn text_input<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         buffer: &crate::TextBuffer,
@@ -377,7 +385,7 @@ impl<'e> UiContext<'e> {
     /// reporting a synthetic user `changed` response. Secret values must use
     /// [`Self::text_input`] with [`crate::TextBuffer::secret`] instead.
     #[track_caller]
-    pub fn text_input_string<'u, 't>(
+    pub(crate) fn text_input_string<'u, 't>(
         &'u mut self,
         label: impl Into<Cow<'t, str>>,
         value: &'t mut String,
@@ -397,19 +405,14 @@ impl<'e> UiContext<'e> {
         input
     }
     #[inline(always)]
-    pub fn text<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Text<'u, 'e, 't> {
+    pub(crate) fn text<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Text<'u, 'e, 't> {
         Text {
             inner: self.leaf(Kind::Text, text.into()),
         }
     }
-    /// Declare empty text, typically as the baseline for a reactive binding.
-    #[inline(always)]
-    pub fn text_empty<'u, 't>(&'u mut self) -> Text<'u, 'e, 't> {
-        self.text("")
-    }
     /// Format synchronously into an engine-owned reusable scratch buffer.
     #[inline(always)]
-    pub fn text_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Text<'_, 'e, 'static> {
+    pub(crate) fn text_fmt(&mut self, args: std::fmt::Arguments<'_>) -> Text<'_, 'e, 'static> {
         use std::fmt::Write;
         if let Some(literal) = args.as_str() {
             return self.text(literal);
@@ -424,7 +427,7 @@ impl<'e> UiContext<'e> {
         Text { inner }
     }
     #[inline(always)]
-    pub fn svg(&mut self, asset: &crate::SvgAsset) -> Svg<'_, 'e> {
+    pub(crate) fn svg(&mut self, asset: &crate::SvgAsset) -> Svg<'_, 'e> {
         let mut inner = self.leaf(Kind::Svg, Cow::Borrowed(asset.source()));
         inner.style.width = Some(24.);
         inner.style.height = Some(24.);
@@ -432,7 +435,7 @@ impl<'e> UiContext<'e> {
         Svg { inner }
     }
     /// Declare an embedded raster image; see [`crate::ImageAsset`].
-    pub fn image<'u>(&'u mut self, asset: &'u crate::ImageAsset) -> Image<'u, 'e> {
+    pub(crate) fn image<'u>(&'u mut self, asset: &'u crate::ImageAsset) -> Image<'u, 'e> {
         let mut inner = self.leaf(Kind::Image, Cow::Borrowed(asset.encoded_str()));
         inner.style.width = Some(96.);
         inner.style.height = Some(96.);
@@ -441,7 +444,7 @@ impl<'e> UiContext<'e> {
     }
     /// Declare generated SVG markup without requiring a leaked static asset.
     #[inline(always)]
-    pub fn svg_source(&mut self, source: String) -> Svg<'_, 'e> {
+    pub(crate) fn svg_source(&mut self, source: String) -> Svg<'_, 'e> {
         let mut inner = self.leaf(Kind::Svg, Cow::Owned(source));
         inner.style.width = Some(24.);
         inner.style.height = Some(24.);
@@ -449,20 +452,19 @@ impl<'e> UiContext<'e> {
         Svg { inner }
     }
     #[inline(always)]
-    pub fn button<'u, 't>(&'u mut self, text: impl Into<Cow<'t, str>>) -> Button<'u, 'e, 't> {
+    pub(crate) fn themed_button<'u, 't>(&'u mut self) -> Button<'u, 'e, 't> {
         let theme = self.theme();
         let appearance = if self.toolbar_buttons {
             ButtonAppearance::Toolbar
         } else {
             ButtonAppearance::Ordinary
         };
-        let mut inner = self.leaf(Kind::Button, text.into());
+        let mut inner = self.leaf(Kind::ButtonBase, Cow::Borrowed(""));
         style_button(&mut inner.style, theme, appearance);
         Button {
             inner,
             icon: None,
             accessible_name: None,
-            composable: false,
         }
     }
     pub fn viewport_size(&self) -> [f32; 2] {
@@ -773,24 +775,6 @@ impl<'e> UiContext<'e> {
         let scope = crate::macro_support::key_seed(key.into());
         self.scope(scope, build)
     }
-    pub fn switch(&mut self, label: &str, value: &mut bool) -> bool {
-        let key = self.engine.auto_key(self.parent);
-        self.toggle(Kind::Switch, key, label, value)
-    }
-    pub fn checkbox(&mut self, label: &str, value: &mut bool) -> bool {
-        let key = self.engine.auto_key(self.parent);
-        self.toggle(Kind::Checkbox, key, label, value)
-    }
-    /// Synchronous controlled toggle. The borrowed value is never retained.
-    pub fn switch_keyed(&mut self, key: impl Into<Key>, label: &str, value: &mut bool) -> bool {
-        self.toggle(Kind::Switch, key.into(), label, value)
-    }
-    pub fn checkbox_keyed(&mut self, key: impl Into<Key>, label: &str, value: &mut bool) -> bool {
-        self.toggle(Kind::Checkbox, key.into(), label, value)
-    }
-    fn toggle(&mut self, kind: Kind, key: Key, label: &str, value: &mut bool) -> bool {
-        self.toggle_control(kind, label, value).key(key).changed()
-    }
     #[inline(always)]
     pub(crate) fn toggle_control<'u, 't>(
         &'u mut self,
@@ -802,15 +786,15 @@ impl<'e> UiContext<'e> {
         let checked = *value;
         let mut inner = self.leaf(kind, label.into());
         inner.style.checked = checked;
-        inner.style.transition_ms = metrics.interaction_ms;
-        inner.style.padding = 0.;
+        metrics.apply_control_frame(&mut inner.style);
+        inner.style.padding_y = None;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
         // The toggle row itself is transparent and must not clip its retained
         // indicator at the left edge. The switch/checkbox fragment owns its
         // own track/box radius.
         inner.style.radius = 0.;
-        inner.style.min_height =
-            Some(metrics.space(if kind == Kind::Switch { 5 } else { 4 }) as f32);
+        let indicator_height = metrics.space(if kind == Kind::Switch { 5 } else { 4 });
+        inner.style.min_height = Some(f32::from(metrics.control_height.max(indicator_height)));
         Toggle { inner, value }
     }
     #[inline(always)]

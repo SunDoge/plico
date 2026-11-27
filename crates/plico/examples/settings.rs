@@ -1,10 +1,11 @@
+use plico::widgets::{button, column, text};
 use plico::{Engine, UiContext, component};
 #[component]
 fn settings(ui: &mut UiContext<'_>, large: bool) {
-    ui.column().gap(12).padding(16).children(|ui| {
-        ui.text("Settings").font_size(if large { 28 } else { 20 });
-        ui.text("Immediate declarations, retained storage.");
-        ui.button("Save").primary();
+    column(ui).gap(12).padding(16).children(|ui| {
+        text(ui, "Settings").font_size(if large { 28 } else { 20 });
+        text(ui, "Immediate declarations, retained storage.");
+        button(ui).text("Save").primary();
     })
 }
 fn main() -> Result<(), plico::FrameError> {

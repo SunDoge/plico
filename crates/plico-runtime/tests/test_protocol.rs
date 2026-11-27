@@ -2,7 +2,7 @@ use plico::prelude::*;
 use plico_renderer::SemanticRole;
 use plico_runtime::{
     HostView,
-    testing::{Command, DifferentialTester, Driver, Error, Tester},
+    testing::{Command, DifferentialTester, Error, Tester},
 };
 use std::time::Duration;
 
@@ -34,7 +34,7 @@ fn target(label: &str) -> Command {
 }
 #[test]
 fn semantic_commands_drive_real_keyboard_input_without_a_window() {
-    let mut driver = Driver::new(Counter::default(), 400, 300).unwrap();
+    let mut driver = Tester::new(Counter::default(), 400, 300).unwrap();
     let click =
         serde_json::from_str(r#"{"action":"click","role":"button","label":"Increment"}"#).unwrap();
     driver.execute(click).unwrap();
@@ -68,7 +68,7 @@ fn semantic_commands_drive_real_keyboard_input_without_a_window() {
 
 #[test]
 fn semantic_queries_and_pointer_clicks_use_the_real_hit_test() {
-    let mut driver = Driver::new(Counter::default(), 400, 300).unwrap();
+    let mut driver = Tester::new(Counter::default(), 400, 300).unwrap();
     assert_eq!(
         driver
             .get_by_role(SemanticRole::Button, "Increment")
@@ -258,7 +258,7 @@ fn pointer_click_reports_when_another_control_covers_the_target() {
                 };
         }
     }
-    let mut driver = Driver::new(Covered::default(), 300, 200).unwrap();
+    let mut driver = Tester::new(Covered::default(), 300, 200).unwrap();
     assert!(matches!(
         driver.execute(Command::PointerClick {
             role: "button".into(),
@@ -295,7 +295,7 @@ fn settle_advances_animations_without_sleeping() {
             text!(cx, "{:.0}", self.value);
         }
     }
-    let mut driver = Driver::new(Animated::default(), 300, 200).unwrap();
+    let mut driver = Tester::new(Animated::default(), 300, 200).unwrap();
     driver.update_view(|view| view.expanded = true).unwrap();
     assert!(driver.frame_pending());
     driver.settle().unwrap();
@@ -304,7 +304,7 @@ fn settle_advances_animations_without_sleeping() {
 }
 #[test]
 fn bad_targets_are_diagnostic_instead_of_silent_noops() {
-    let mut driver = Driver::new(Counter::default(), 400, 300).unwrap();
+    let mut driver = Tester::new(Counter::default(), 400, 300).unwrap();
     assert!(matches!(
         driver.execute(target("Missing")),
         Err(Error::Target { matches: 0, .. })
@@ -339,7 +339,7 @@ fn json_pointer_commands_redeclare_and_clear_the_pointer_snapshot() {
             text(cx, "Pointer probe");
         }
     }
-    let mut driver = Driver::new(Probe::default(), 1120, 820).unwrap();
+    let mut driver = Tester::new(Probe::default(), 1120, 820).unwrap();
     driver
         .execute(serde_json::from_str(r#"{"action":"pointer_move","x":675,"y":480}"#).unwrap())
         .unwrap();
@@ -385,7 +385,7 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
     let mut text = TextContext::new();
     let mut scene = Scene::new();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     dispatch(
         &mut source,
@@ -394,17 +394,17 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
     )
     .unwrap();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     assert_eq!(source.view().seen, Some((675., 480.)));
     dispatch(&mut source, &mut text, &Command::PointerLeave).unwrap();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     assert_eq!(source.view().seen, None);
     source.update(|view| view.read = false);
     source
-        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     let shows = source.view().shows;
     dispatch(
@@ -414,7 +414,7 @@ fn retained_frames_refresh_pointer_readers_but_leave_other_views_idle() {
     )
     .unwrap();
     source
-        .try_render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        .render_frame(&mut scene, &mut text, (1120, 820), 1.)
         .unwrap();
     assert_eq!(
         source.view().shows,

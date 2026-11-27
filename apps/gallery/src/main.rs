@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     #[cfg(any(feature = "desktop", feature = "wgpu"))]
     if let Some(output) = options.capture {
-        let mut session = plico_desktop::PreviewSession::new(plico_desktop::RenderBackend::Auto);
+        let mut session = plico_desktop::CaptureSession::default();
         #[cfg(feature = "wgpu")]
         session.force_general_pipelines(options.general_classes);
         #[cfg(feature = "wgpu")]
@@ -118,13 +118,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         return Ok(());
     }
-    plico_desktop::run_source_with_options(
+    plico_desktop::run_source(
         plico_desktop::ZoomSource::new(Box::new({
             let app = gallery::Gallery::default();
             let widget =
                 plico_renderer::image_surface::ImageSurface::new(app.images.surface.clone());
             plico_desktop::SurfaceSource::new(
-                gallery::images::GalleryHost { app },
+                gallery::images::GalleryHost::new(app),
                 widget,
                 "image-preview",
             )

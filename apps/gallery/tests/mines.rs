@@ -332,15 +332,12 @@ mod ui {
         let mut s = Source::with_clock(app, clock.clone());
         let mut t = TextContext::new();
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
         activate(&mut s, "Row 9, column 16: hidden");
-        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
         for tick in 1..45 {
             clock.set(Duration::from_millis(tick * 17)).unwrap();
-            s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-                .unwrap();
+            s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
             let stats = s.frame_diagnostics().backend;
             assert_eq!(
                 (
@@ -354,12 +351,10 @@ mod ui {
             );
         }
         clock.set(Duration::from_secs(2)).unwrap();
-        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
         assert!(s.animation_deadline().is_some());
         clock.set(Duration::from_millis(2500)).unwrap();
-        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
         assert_eq!(s.frame_diagnostics().backend.sync_visits, 0);
         assert_eq!(s.frame_diagnostics().declaration_micros, 0);
     }
@@ -372,12 +367,10 @@ mod ui {
         let mut s = Source::with_clock(app, clock.clone());
         let mut t = TextContext::new();
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-            .unwrap();
+        s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
         for ms in (20..1200).step_by(20) {
             clock.set(Duration::from_millis(ms)).unwrap();
-            s.render_retained_frame(&mut scene, &mut t, (1120, 820), 1.)
-                .unwrap();
+            s.render_frame(&mut scene, &mut t, (1120, 820), 1.).unwrap();
             let stats = s.frame_diagnostics().backend;
             assert_eq!(
                 (
@@ -400,7 +393,7 @@ mod ui {
         let mut s = Source::new(app);
         let mut text = TextContext::new();
         let mut scene = plico_renderer::Scene::new();
-        s.render_retained_frame(&mut scene, &mut text, (1120, 820), 1.)
+        s.render_frame(&mut scene, &mut text, (1120, 820), 1.)
             .unwrap();
         assert!(!s.has_anim());
     }

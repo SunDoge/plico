@@ -1,6 +1,10 @@
 use super::*;
 
 impl Renderer {
+    pub(crate) fn layer_texture_limit(&self) -> u32 {
+        self.device.limits().max_texture_dimension_2d
+    }
+
     fn new_layer_buffers(&self) -> LayerBuffers {
         let frame = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Plico layer frame"),
@@ -314,7 +318,7 @@ impl Renderer {
                 } else {
                     self.filter_reuses += 1;
                 }
-                let (work, image) = workspace.as_ref().unwrap();
+                let (work, image) = workspace.as_mut().unwrap();
                 pipeline.encode(&self.queue, encoder, work, blur.sigma, blur.edge);
                 (image.clone(), work.output.clone())
             } else {
