@@ -624,8 +624,14 @@ fn builtin_liquid_glass_renders_a_local_pane() {
 #[test]
 #[ignore = "requires a working wgpu adapter"]
 fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Fill, Gradient};
+    use plico_renderer::PaintScene;
+
     struct Pane {
-        glass: bool,
+        material: Option<plico::LiquidGlass>,
+        radius: f32,
+        smoothing: f32,
     }
 
     impl plico::View for Pane {
@@ -641,18 +647,10 @@ fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
                 .absolute(16., 12.2)
                 .width(120.)
                 .height(37.)
-                .radius(18.5)
-                .corner_smoothing(0.);
-            if self.glass {
-                capsule
-                    .material(plico::LiquidGlass {
-                        tint: Color::Literal(0xffffff),
-                        tint_opacity: 1.,
-                        refraction: 0.,
-                        rim: 0.,
-                        ..plico::LiquidGlass::default()
-                    })
-                    .end();
+                .radius(self.radius)
+                .corner_smoothing(self.smoothing);
+            if let Some(material) = self.material {
+                capsule.material(material).end();
             } else {
                 capsule.background(Color::Literal(0xffffff)).end();
             }
@@ -664,19 +662,46 @@ fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
     let output = [200, 80];
     let mut renderer = pollster::block_on(Renderer::new()).unwrap();
     let mut text = TextContext::new();
-    let mut draw = |glass| {
-        let mut source = Source::new(NativeView(Pane { glass }));
-        let mut scene = Scene::new();
+    let mut draw = |material, radius, smoothing, with_backdrop| {
+        let mut source = Source::new(NativeView(Pane {
+            material,
+            radius,
+            smoothing,
+        }));
+        let mut pane = Scene::new();
         source
-            .render_frame(&mut scene, &mut text, viewport, scale)
+            .render_frame(&mut pane, &mut text, viewport, scale)
             .unwrap();
         assert_eq!(source.shader_diagnostics().count(), 0);
+        let mut scene = Scene::new();
+        if with_backdrop {
+            let gradient = Gradient::new_linear((20., 40.), (175., 55.)).with_stops([
+                peniko::Color::from_rgb8(13, 40, 215),
+                peniko::Color::from_rgb8(245, 190, 30),
+            ]);
+            scene.fill(
+                Fill::NonZero,
+                Affine::IDENTITY,
+                &gradient,
+                None,
+                &Rect::new(0., 0., 200., 80.),
+            );
+        }
+        scene.append_scene(pane, Affine::IDENTITY);
         renderer
             .render_scene(&scene, output, [0., 0., 0., 1.], false)
             .unwrap()
     };
-    let glass = draw(true);
-    let solid = draw(false);
+    let opaque = plico::LiquidGlass {
+        style: plico::GlassStyle::Regular,
+        tint: Color::Literal(0xffffff),
+        tint_opacity: 1.,
+        refraction: 0.,
+        rim: 0.,
+        ..plico::LiquidGlass::default()
+    };
+    let glass = draw(Some(opaque), 18.5, 1., false);
+    let solid = draw(None, 18.5, 1., false);
     let red = |pixels: &[u8], x: usize, y: usize| f32::from(pixels[(y * 200 + x) * 4]);
     let glass_center = red(&glass, 95, 37);
     let solid_center = red(&solid, 95, 37);
@@ -698,6 +723,62 @@ fn glass_capsule_coverage_tracks_the_solid_outline_at_fractional_scale() {
         }
     }
     assert!(antialiased_pixels >= 8);
+
+    // A 0.01 logical pixel radius step must not flash when the corners meet,
+    // including on refracted pixels and the rim over a colored backdrop.
+    for (material, with_backdrop) in [(opaque, false), (plico::LiquidGlass::default(), true)] {
+        let capsule = draw(Some(material), 18.5, 1., with_backdrop);
+        for smoothing in [0., 1.] {
+            let before = draw(Some(material), 18.49, smoothing, with_backdrop);
+            for (index, (after, before)) in capsule.iter().zip(&before).enumerate() {
+                let delta = after.abs_diff(*before);
+                assert!(
+                    delta <= 4,
+                    "capsule transition at byte {index} with smoothing {smoothing} and backdrop {with_backdrop}: {delta} levels"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
+fn capsule_mask_matches_the_webgl_reference_at_fractional_scale() {
+    use kurbo::Affine;
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+
+    let (helpers, _) = plico_renderer::shader::LIQUID_GLASS_WGSL
+        .split_once("fn plico_effect(")
+        .unwrap();
+    let probe = r#"
+        fn plico_effect(uv: vec2f) -> vec4f {
+            let p = (uv * vec2f(200., 80.) - vec2f(95., 38.375)) / 1.25;
+            let distance = glass_contour_field(p, vec2f(120., 37.), 18.5, 0.);
+            return vec4f(0., 0., 0., web_glass_coverage(distance));
+        }
+    "#;
+    let source = ShaderEffectSource::with_backdrop(&format!("{helpers}{probe}"), true).unwrap();
+    let mut text = TextContext::new();
+    let mut paint = plico_renderer::widget::PaintContext::new(200., 80., 1., &mut text);
+    paint.draw_shader_effect(ShaderEffectId::new(), source, 0., [].into());
+    let mut scene = Scene::new();
+    scene.append_scene(paint.finish(), Affine::IDENTITY);
+    let mut renderer = pollster::block_on(Renderer::new()).unwrap();
+    let pixels = renderer
+        .render_scene(&scene, [200, 80], [0.; 4], false)
+        .unwrap();
+
+    // The same signed distance and coverage from engine.ts (48d2260), run
+    // in WebGL2 at 125%. Compare linear coverage via the WGPU alpha channel.
+    for (y, reference) in [(14, [11, 11, 11]), (15, [174, 174, 172])] {
+        for (x, expected) in [44, 85, 147].into_iter().zip(reference) {
+            let alpha = pixels[(y * 200 + x) * 4 + 3];
+            assert!(
+                alpha.abs_diff(expected) <= 2,
+                "coverage at ({x}, {y}): {alpha} vs {expected}"
+            );
+        }
+    }
 }
 
 #[test]

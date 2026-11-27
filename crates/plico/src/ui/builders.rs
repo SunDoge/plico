@@ -24,8 +24,6 @@ impl Leaf<'_, '_, '_> {
         if styled {
             style.align.get_or_insert(Align::Center);
             style.justify.get_or_insert(Justify::Center);
-            // Button spacing is shared by shortcuts and custom content.
-            style.gap = ui.theme().metrics.spacing as f32 * 1.5;
         }
         style.disabled |= ui.inherited.disabled;
         style.styled_button = styled;
@@ -911,7 +909,7 @@ pub(super) fn style_input(style: &mut Style, theme: Theme) {
     style.padding_y = Some(m.spacing as f32 * 1.5);
     style.radius = m.radius as f32;
     style.border_width = 1.;
-    style.background = Some(Color::Control);
+    style.background = Some(Color::Panel);
     style.transition_ms = m.interaction_ms;
 }
 
@@ -948,13 +946,13 @@ pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAp
             style.border_width = 0.;
         }
         ButtonAppearance::Segment(on) => {
-            style.padding_x = Some(m.space(3) as f32);
-            style.padding_y = Some(m.space(1) as f32);
-            style.radius = (m.radius as f32 - m.spacing as f32 * 0.5).max(0.);
-            style.min_height = Some(0.);
+            // CUI's inset track uses a 3-point padding and one shared height.
+            style.padding_y = Some(0.);
+            style.radius = f32::from(m.inset_radius(m.radius, 3));
+            style.min_height = Some(f32::from(m.control_height.saturating_sub(6)));
             style.border_width = 0.;
-            style.background = on.then_some(if theme.surface & 0xff < 128 {
-                Color::ControlPressed
+            style.background = on.then_some(if theme.is_dark() {
+                theme.blend(Color::Panel, Color::Foreground, 0.17)
             } else {
                 Color::Panel
             });
@@ -970,6 +968,8 @@ pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAp
                     color: Color::Literal(0),
                     opacity: 0.12,
                 });
+            } else {
+                style.hover_background = None;
             }
         }
     }
@@ -990,6 +990,7 @@ impl ButtonBase<'_, '_, '_> {
             ButtonAppearance::Segment(selected),
         );
         self.inner.style.selected = Some(selected);
+        self.inner.style.role = Some(crate::WidgetRole::RadioButton);
         self.styled = true;
         self
     }

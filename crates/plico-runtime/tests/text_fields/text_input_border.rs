@@ -41,7 +41,7 @@ fn input_border(ui: &Tester<Demo>) -> [u8; 3] {
 fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
     let theme = Theme::default();
     let mut ui = Tester::new(Demo::default(), 480, 240).unwrap();
-    let rest = theme.blend(Color::Border, Color::Foreground, 0.35);
+    let rest = theme.blend(Color::Border, Color::Foreground, 0.28);
     assert_eq!(input_border(&ui), channels(theme.resolve(rest)));
     let fill = ui
         .placed_nodes()
@@ -49,7 +49,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         .find(|node| node.paint.border.is_some())
         .and_then(|node| node.paint.background)
         .expect("the text input keeps a fill");
-    assert_eq!(channels(theme.control), {
+    assert_eq!(channels(theme.panel), {
         let rgba = fill.to_rgba8();
         [rgba.r, rgba.g, rgba.b]
     });
@@ -70,7 +70,7 @@ fn text_input_border_tracks_hover_and_focus_without_changing_its_fill() {
         y: y as f64,
     })
     .unwrap();
-    let hovered = theme.blend(Color::Border, Color::Foreground, 0.45);
+    let hovered = theme.blend(rest, Color::Muted, 0.5);
     assert_eq!(
         input_border(&ui),
         channels(theme.resolve(hovered)),

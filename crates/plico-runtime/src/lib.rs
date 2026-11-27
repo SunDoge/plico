@@ -71,8 +71,7 @@ pub(crate) fn mix_rgb(from: u32, to: u32, amount: f32) -> u32 {
 
 /// Whether a theme's window surface reads as dark (MyGO `Theme.Dark`).
 pub(crate) fn is_dark(theme: Theme) -> bool {
-    let [r, g, b] = [16, 8, 0].map(|shift| ((theme.surface >> shift) & 255) as f32);
-    0.2126 * r + 0.7152 * g + 0.0722 * b < 128.
+    theme.is_dark()
 }
 
 /// Semantic command protocol and deterministic headless test driver.

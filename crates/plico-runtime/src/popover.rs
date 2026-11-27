@@ -205,9 +205,9 @@ impl Adapter {
         self.effect_poses.clear();
         self.popup_motion_active = false;
         self.popup_motions.retain(|entity, _| {
-            engine
-                .node(*entity)
-                .is_some_and(|popup| popup.style.popup_motion)
+            engine.node(*entity).is_some_and(|popup| {
+                popup.style.popup_motion || popup.style.liquid_popup && popup.style.modal_open
+            })
         });
         let mut changed = Vec::new();
         let mut paint_poses = Vec::new();
@@ -215,6 +215,19 @@ impl Adapter {
             let Some(popup) = engine.node(placement.root) else {
                 continue;
             };
+            let popup_style = popup.style;
+            let centered = popup_style.popup_over_anchor;
+            if !popup_style.popup_motion {
+                if popup_style.liquid_popup && popup_style.modal_open {
+                    // The opaque/reduced-motion fallback is already visible at
+                    // its destination. Switching back to glass must keep that pose.
+                    self.popup_motions.insert(
+                        placement.root,
+                        PopupMotion::open_at_rest(centered, engine.time().now),
+                    );
+                }
+                continue;
+            }
             let Some(face) = placement.face else {
                 continue;
             };
@@ -230,11 +243,6 @@ impl Adapter {
             let panel_width = right - x;
             let shown_height = bottom - y;
             let flip = placement.flip;
-            let popup_style = popup.style;
-            if !popup_style.popup_motion {
-                continue;
-            }
-            let centered = popup_style.popup_over_anchor;
             let motion = self
                 .popup_motions
                 .entry(placement.root)

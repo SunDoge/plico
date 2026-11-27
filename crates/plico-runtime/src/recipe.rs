@@ -47,11 +47,15 @@ pub(crate) fn knob_rim_alpha(theme: Theme) -> f32 {
 /// than a button hairline and firms up under the pointer. Focus spends the
 /// accent, following CUI's control-edge hierarchy on top of MyGO's states.
 pub(crate) fn input_border(theme: Theme, focused: bool, hovered: bool) -> u32 {
+    // CUI's strong neutral field edge sits near #aaa in light mode and #838383
+    // in dark mode. Derive it from the active palette so custom themes follow.
+    let strength = if theme.is_dark() { 0.37 } else { 0.28 };
+    let edge = mix_rgb(theme.border, theme.foreground, strength);
     if focused {
         theme.accent
     } else if hovered {
-        mix_rgb(theme.border, theme.foreground, 0.45)
+        mix_rgb(edge, theme.muted, 0.5)
     } else {
-        mix_rgb(theme.border, theme.foreground, 0.35)
+        edge
     }
 }

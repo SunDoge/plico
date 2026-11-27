@@ -321,27 +321,33 @@ pub fn choice<T: PartialEq>(
     response
 }
 
-/// A wrapping group of selectable buttons. Labels and their order must stay
+/// A horizontal group of selectable segments. Labels and their order must stay
 /// fixed; for dynamic data use keyed `choice` calls. Empty lists preserve state,
 /// and an out-of-range index shows no selection until a button is activated.
-/// Every button is a Tab stop; Enter/Space select it. This is not a tabs widget.
+/// Tab enters at the chosen segment. Arrow keys, Home and End select within
+/// the group; Enter and Space also activate the focused segment.
 #[component]
 pub fn segmented(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> bool {
     let m = cx.theme().metrics;
     let before = *selected;
     row(cx)
-        .padding(m.spacing as f32 * 0.5)
-        .gap(m.spacing as f32 * 0.5)
+        .padding(3)
+        .align(Align::Stretch)
         .radius(m.radius as f32)
-        .background(Color::Control)
-        .border(1., Color::Border)
+        .background(Color::Foreground)
+        .background_alpha(0.06)
+        .semantic_role(crate::WidgetRole::RadioGroup)
+        .selection_follows_focus(true)
         .children(|cx| {
             for (index, label) in labels.iter().enumerate() {
                 cx.keyed(index as u64, |cx| {
                     if button_base(cx, *label)
                         .segment(*selected == index)
                         .children(|cx| {
-                            text(cx, *label);
+                            text(cx, *label)
+                                .font_size(m.font_size)
+                                .weight(500)
+                                .ellipsis(true);
                         })
                         .response
                         .clicked()

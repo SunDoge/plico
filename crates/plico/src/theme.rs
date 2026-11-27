@@ -170,6 +170,11 @@ impl Theme {
     pub fn light() -> Self {
         Self::default()
     }
+    /// Whether the window surface reads as dark, using sRGB luminance weights.
+    pub fn is_dark(self) -> bool {
+        let [r, g, b] = [16, 8, 0].map(|shift| ((self.surface >> shift) & 255) as f32);
+        0.2126 * r + 0.7152 * g + 0.0722 * b < 128.
+    }
     pub fn dark() -> Self {
         Self {
             foreground: 0xf4f4f5,

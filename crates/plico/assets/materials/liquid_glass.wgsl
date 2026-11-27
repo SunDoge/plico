@@ -37,30 +37,25 @@ fn glass_normal(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> vec2<f32> {
     }
     return vec2<f32>(0.0, sign(p.y));
 }
-// At a fully rounded radius, MyGO's rounded-box distance reduces to the
-// distance from one segment. Use its gradient for both the sides and caps.
-fn glass_capsule_delta(p: vec2f, half_size: vec2f, radius: f32) -> vec2f {
-    let segment = max(half_size - vec2f(radius), vec2f(0.));
-    return p - clamp(p, -segment, segment);
+
+// bilalgursen/liquid-glass engine.ts at 48d2260 (MIT): measure the full
+// pixel footprint of the signed distance, including diagonal edges.
+fn web_glass_coverage(distance: f32) -> f32 {
+    let aa = max(fwidth(distance), 0.0001);
+    return 1. - smoothstep(-aa, aa, distance);
 }
+
 // Same implicit continuous-corner field as plico-renderer/corner_shape.rs.
 // Uniform radii: the nearest corner is the maximal corner field.
 fn glass_contour_field(p: vec2<f32>, size: vec2<f32>, radius: f32, smoothing: f32) -> f32 {
-    if radius > 0. && radius >= min(size.x, size.y) * 0.5 {
-        return length(glass_capsule_delta(p, size * 0.5, radius)) - radius;
-    }
     let u = size * 0.5 - abs(p);
-    let edge = -min(u.x, u.y);
-    if radius <= 0.0 {
-        return edge;
-    }
-    var circular = edge;
-    if u.x < radius && u.y < radius {
-        circular = max(circular, length(max(vec2<f32>(radius) - u, vec2<f32>(0.0))) - radius);
-    }
-    if smoothing <= 0.0 {
+    // MyGO's sdRoundRect reduces to the exact segment distance at capsule radius.
+    let a = vec2f(radius) - u;
+    let circular = length(max(a, vec2f(0.))) + min(max(a.x, a.y), 0.) - radius;
+    if radius <= 0.0 || smoothing <= 0.0 {
         return circular;
     }
+    let edge = -min(u.x, u.y);
     let extent = 1.528665 * radius;
     var continuous = edge;
     if u.x < extent && u.y < extent {
@@ -240,20 +235,19 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
     let face_radius = select(plico.values[0].x, plico.values[9].x, morph && plico.values[9].x > 0.);
     let half_short = min(pane_size.x, pane_size.y) * 0.5;
     let radius = min(face_radius + grow.y, half_short);
-    let capsule = radius > 0. && radius >= half_short;
-    let smoothing = clamp(plico.values[3].x, 0.0, 1.0);
+    // Merge the continuous corners into the exact circular caps as the short
+    // straight side closes, over the last device pixel of corner clearance.
+    let corner_weight = smoothstep(0., 1., (half_short - radius) * scale);
+    let smoothing = clamp(plico.values[3].x, 0.0, 1.0) * corner_weight;
+    let material = plico.values[3].y;
+    let action = plico.values[6].x > 0.5;
+    let use_web_direction = material > 2.5 || action;
     var distance = glass_contour_field(p, pane_size, radius, smoothing);
-    var normal: vec2f;
-    if capsule {
-        let delta = glass_capsule_delta(p, pane_size * 0.5, radius);
-        normal = delta / max(length(delta), 0.00001);
-    } else {
-        normal = glass_normal(p, pane_size * 0.5, radius);
-    }
+    var normal = glass_normal(p, pane_size * 0.5, radius);
     // Only curved continuous corners need the field gradient. Flat edges retain
     // the inexpensive analytic path and the lens never affects the center.
     let nearest = pane_size * 0.5 - abs(p);
-    if !capsule && smoothing > 0.0 && nearest.x < radius * 1.528665 && nearest.y < radius * 1.528665 {
+    if !use_web_direction && smoothing > 0.0 && nearest.x < radius * 1.528665 && nearest.y < radius * 1.528665 {
         let epsilon = 0.25 / scale;
         let dx =
             (glass_contour_field(p + vec2<f32>(epsilon, 0.0), pane_size, radius, smoothing)
@@ -263,30 +257,37 @@ fn plico_effect(uv: vec2<f32>) -> vec4<f32> {
                 - glass_contour_field(p - vec2<f32>(0.0, epsilon), pane_size, radius, smoothing)) / (2.0 * epsilon);
         let gradient = vec2<f32>(dx, dy);
         let magnitude = max(length(gradient), 0.00001);
-        normal = gradient / magnitude;
-        distance /= magnitude;
+        let blended = mix(normal, gradient / magnitude, corner_weight);
+        normal = blended / max(length(blended), 0.00001);
+        distance = mix(distance, distance / magnitude, corner_weight);
     }
     let separation = plico.values[2].w;
-    if plico.values[6].x > 0.5 {
+    if action {
         distance = action_contour(p, pane_size, separation);
-        let e = 0.25 / scale;
-        let gradient = vec2f(
-                action_contour(p + vec2f(e, 0.), pane_size, separation)
-                - action_contour(p - vec2f(e, 0.), pane_size, separation),
-                action_contour(p + vec2f(0., e), pane_size, separation)
-                - action_contour(p - vec2f(0., e), pane_size, separation),
-            );
-        normal = gradient / max(length(gradient), 0.00001);
     }
-    // MyGO uses a linear one-device-pixel coverage ramp for circular edges.
-    // A cubic ramp flattens the first few samples where a capsule leaves a side.
-    let coverage = select(
-            1.0 - smoothstep(-0.5 / scale, 0.5 / scale, distance),
-            clamp(0.5 - distance * scale, 0.0, 1.0),
-            capsule && plico.values[6].x <= 0.5,
-        );
+    if use_web_direction {
+        // WebGL's in-plane refraction direction samples the same shape
+        // 1.25 logical pixels forward in each axis.
+        let dx = p + vec2f(1.25, 0.);
+        // WGSL and the upstream shader both use a local +y down axis.
+        let dy = p + vec2f(0., 1.25);
+        var samples = vec2f(0.);
+        if action {
+            samples = vec2f(action_contour(dx, pane_size, separation), action_contour(dy, pane_size, separation));
+        } else {
+            samples = vec2f(
+                    glass_contour_field(dx, pane_size, radius, smoothing),
+                    glass_contour_field(dy, pane_size, radius, smoothing),
+                );
+        }
+        normal = normalize(samples - vec2f(distance) + vec2f(0.000001));
+    }
+    // The standard MyGO materials use their original linear mask.
+    var coverage = clamp(0.5 - distance * scale, 0., 1.);
+    if material < 0.5 || use_web_direction {
+        coverage = web_glass_coverage(distance);
+    }
     let depth = max(-distance, 0.0);
-    let material = plico.values[3].y;
     let clarity = clamp(plico.values[3].z, 0.0, 1.0);
     let dark = plico.values[3].w > 0.5;
     let short_side = min(pane_size.x, pane_size.y);

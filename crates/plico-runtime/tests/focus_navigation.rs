@@ -10,6 +10,7 @@ use plico_runtime::{HostView, Source};
 struct Demo {
     tab: usize,
     radio: usize,
+    segment: usize,
     plain_focused: bool,
 }
 
@@ -23,6 +24,7 @@ impl HostView for Demo {
                 }
             }
         });
+        segmented(cx, &mut self.segment, &["List", "Grid", "Columns"]);
         self.plain_focused = button(cx).text("Plain").response().focused();
     }
 }
@@ -90,6 +92,21 @@ fn response_reports_backend_focus() {
     assert!(!source.view().plain_focused);
     focus(&mut source, "Plain", SemanticRole::Button, &mut text);
     assert!(source.view().plain_focused);
+}
+
+#[test]
+fn segmented_control_selects_with_arrows_and_uses_one_tab_stop() {
+    let mut source = Source::new(Demo::default());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 720, 400);
+    focus(&mut source, "List", SemanticRole::RadioButton, &mut text);
+    source.handle_event(key("ArrowRight"));
+    source.build_frame(&mut text, 720, 400);
+    assert_eq!(source.view().segment, 1);
+    assert!(focused_label(&source, SemanticRole::RadioButton, "Grid"));
+    source.handle_event(key("Tab"));
+    source.build_frame(&mut text, 720, 400);
+    assert!(focused_label(&source, SemanticRole::Button, "Plain"));
 }
 
 #[test]

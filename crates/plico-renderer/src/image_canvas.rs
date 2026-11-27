@@ -1,7 +1,7 @@
 //! Retained raster canvas with original-pixel rectangle editing.
 //! IO, OCR, persistence and undo belong to the host application.
 use crate::{
-    PaintContext, PaintScene, PointerButton, PointerId, PointerPhase, UiEvent, WakeCallback,
+    PaintContext, PaintScene, PointerButton, PointerId, PointerPhase, Scene, UiEvent, WakeCallback,
     Widget, WidgetChanges, WidgetEventResult, WidgetGeometry, image::RasterImage,
 };
 use kurbo::{Affine, Rect, Stroke};
@@ -44,9 +44,11 @@ pub enum CanvasEvent {
 }
 struct Shared {
     image: Option<Arc<RasterImage>>,
+    overlay: Option<Arc<Scene>>,
     regions: Vec<CanvasRegion>,
     selected: Option<u64>,
     tool: CanvasTool,
+    fit_to_viewport: bool,
     zoom: f64,
     pan: [f64; 2],
     size: [f32; 2],
@@ -62,9 +64,11 @@ impl Default for ImageCanvasState {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(Shared {
             image: None,
+            overlay: None,
             regions: vec![],
             selected: None,
             tool: CanvasTool::Draw,
+            fit_to_viewport: true,
             zoom: 1.,
             pan: [0.; 2],
             size: [0.; 2],
@@ -76,6 +80,11 @@ impl Default for ImageCanvasState {
     }
 }
 impl ImageCanvasState {
+    /// Whether this build supports retained scene overlays on the canvas.
+    pub const fn supports_scene_overlay() -> bool {
+        true
+    }
+
     fn update(&self, f: impl FnOnce(&mut Shared)) {
         let wake = {
             let mut s = self.0.lock().unwrap();
@@ -89,9 +98,11 @@ impl ImageCanvasState {
     pub fn set_document(&self, image: Option<Arc<RasterImage>>, regions: Vec<CanvasRegion>) {
         self.update(|s| {
             s.image = image.filter(|i| i.size().iter().all(|v| *v > 0.));
+            s.overlay = None;
             s.regions = regions;
             sanitize(s);
             s.selected = None;
+            s.fit_to_viewport = true;
             s.zoom = 1.;
             s.pan = [0.; 2];
             s.document += 1;
@@ -112,6 +123,29 @@ impl ImageCanvasState {
             }
             s.image = Some(image);
             s.document += 1;
+            s.revision += 1;
+            s.wake.clone()
+        };
+        wake();
+        true
+    }
+    /// Set a retained scene in image-pixel coordinates. It follows the image
+    /// transform, paints below region handles and keeps the original raster.
+    /// Return false for a nonempty overlay when no image is mounted.
+    pub fn set_scene_overlay(&self, overlay: Option<Arc<Scene>>) -> bool {
+        let wake = {
+            let mut s = self.0.lock().unwrap();
+            if overlay.is_some() && s.image.is_none() {
+                return false;
+            }
+            if match (&s.overlay, &overlay) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            } {
+                return true;
+            }
+            s.overlay = overlay;
             s.revision += 1;
             s.wake.clone()
         };
@@ -149,6 +183,7 @@ impl ImageCanvasState {
     /// Fit the complete image to the available layout slot.
     pub fn fit(&self) {
         self.update(|s| {
+            s.fit_to_viewport = true;
             s.zoom = 1.;
             s.pan = [0.; 2];
             s.document += 1;
@@ -157,7 +192,8 @@ impl ImageCanvasState {
     /// Display one image pixel per logical pixel, centered in the viewport.
     pub fn actual_size(&self) {
         self.update(|s| {
-            s.zoom = 1. / fit_scale(s);
+            s.fit_to_viewport = false;
+            s.zoom = 1.;
             s.pan = [0.; 2];
             s.document += 1;
         });
@@ -183,8 +219,7 @@ impl ImageCanvasState {
     }
     /// Current image-to-logical-pixel scale.
     pub fn scale(&self) -> f64 {
-        let s = self.0.lock().unwrap();
-        fit_scale(&s) * s.zoom
+        image_scale(&self.0.lock().unwrap())
     }
 }
 fn fit_scale(s: &Shared) -> f64 {
@@ -193,9 +228,13 @@ fn fit_scale(s: &Shared) -> f64 {
         .min(s.size[1] as f64 / size[1] as f64)
         .max(0.00001)
 }
+fn image_scale(s: &Shared) -> f64 {
+    let base = if s.fit_to_viewport { fit_scale(s) } else { 1. };
+    base * s.zoom
+}
 fn transform(s: &Shared) -> (f64, [f64; 2]) {
     let size = s.image.as_ref().map(|i| i.size()).unwrap_or([1.; 2]);
-    let scale = fit_scale(s) * s.zoom;
+    let scale = image_scale(s);
     (
         scale,
         [
@@ -272,6 +311,63 @@ mod tests {
             modifiers: Default::default(),
             properties: PointerProperties::default(),
         }));
+    }
+    #[test]
+    fn scene_overlay_uses_the_image_transform_and_clears_on_document_change() {
+        let (state, mut widget) = fixture();
+        let mut overlay = Scene::new();
+        overlay.fill(
+            Fill::NonZero,
+            Affine::IDENTITY,
+            Color::BLACK,
+            None,
+            &Rect::new(2., 4., 32., 44.),
+        );
+        assert!(state.set_scene_overlay(Some(Arc::new(overlay))));
+        state.zoom(2.);
+        state.pan([15., -5.]);
+        let mut text = crate::TextContext::new();
+        let mut paint = PaintContext::new(200., 400., 2., &mut text);
+        widget.paint(&mut paint);
+        let scene = paint.finish();
+        let transforms: Vec<_> = scene
+            .commands
+            .iter()
+            .filter_map(|command| {
+                if let crate::PaintCommand::Fill { transform, .. } = command {
+                    Some(*transform)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(transforms.len(), 2);
+        assert_eq!(transforms[0], transforms[1]);
+        assert_eq!(transforms[1].as_coeffs()[0], 4.);
+        state.set_document(None, vec![]);
+        assert!(state.0.lock().unwrap().overlay.is_none());
+    }
+
+    #[test]
+    fn actual_size_can_be_requested_before_viewport_layout() {
+        let state = ImageCanvasState::default();
+        state.set_document(
+            Some(Arc::new(RasterImage::from_rgba(image::RgbaImage::new(
+                100, 200,
+            )))),
+            Vec::new(),
+        );
+        state.actual_size();
+        let mut widget = ImageCanvas::new(state.clone());
+        widget.layout_changed(WidgetGeometry {
+            content_size: [300., 600.],
+            device_scale: 2.,
+            local_to_window: Affine::IDENTITY.as_coeffs(),
+            window_to_local: Affine::IDENTITY.as_coeffs(),
+        });
+        assert_eq!(state.scale(), 1.);
+        state.fit();
+        assert_eq!(state.scale(), 3.);
     }
     #[test]
     fn draws_original_pixel_rect_with_reverse_drag_and_outside_release() {
@@ -625,7 +721,7 @@ impl Widget for ImageCanvas {
                             Operation::Draw
                         } else {
                             let q = image_point(&s, point);
-                            let radius = 8. / (fit_scale(&s) * s.zoom);
+                            let radius = 8. / image_scale(&s);
                             let corner = s
                                 .regions
                                 .iter()
@@ -727,6 +823,9 @@ impl Widget for ImageCanvas {
         let transform = Affine::translate((origin[0], origin[1])) * Affine::scale(scale);
         let scene = cx.scene_mut();
         scene.draw_image(image.brush().into(), transform);
+        if let Some(overlay) = &s.overlay {
+            scene.append_scene(overlay.as_ref().clone(), transform);
+        }
         let pending = self.drag.and_then(|d| Self::pending(&s, d));
         for region in s.regions.iter().copied().chain(pending.filter(|_| {
             self.drag

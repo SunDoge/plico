@@ -508,6 +508,7 @@ pub type PopoverState = ModalState;
 pub struct Popover<'u, 'e, 's> {
     modal: Modal<'u, 'e, 's>,
     disabled: bool,
+    ghost_trigger: bool,
     trigger_text: Option<Cow<'s, str>>,
     trigger_icon: Option<(crate::SvgAsset, bool)>,
 }
@@ -520,6 +521,7 @@ impl<'e> UiContext<'e> {
         Popover {
             modal: self.modal(state).title(label).width(240.),
             disabled: false,
+            ghost_trigger: false,
             trigger_text: None,
             trigger_icon: None,
         }
@@ -539,6 +541,12 @@ impl<'s> crate::ImplicitKey for Popover<'_, '_, 's> {
 impl<'s> Popover<'_, '_, 's> {
     pub fn trigger_icon(mut self, icon: &crate::SvgAsset, icon_only: bool) -> Self {
         self.trigger_icon = Some((*icon, icon_only));
+        self
+    }
+    /// Use a toolbar-style trigger with a fill only on hover or press.
+    /// An attached material still paints the panel and its opening animation.
+    pub fn ghost_trigger(mut self) -> Self {
+        self.ghost_trigger = true;
         self
     }
     /// Center the popup over its trigger, clamping the result to the viewport.
@@ -598,8 +606,10 @@ impl<'s> Popover<'_, '_, 's> {
         let glass = self.modal.material;
         let trigger_icon = self.trigger_icon;
         let icon_only = trigger_icon.is_some_and(|(_, only)| only);
-        let tinted_icon_trigger =
-            icon_only && glass.is_some_and(|material| material.tint_opacity > 0.);
+        let custom_trigger = glass.is_some() || trigger_icon.is_some() || self.ghost_trigger;
+        let tinted_icon_trigger = !self.ghost_trigger
+            && icon_only
+            && glass.is_some_and(|material| material.tint_opacity > 0.);
         let mut style = Style {
             anchor_id: Some(anchor),
             width: trigger_text.as_ref().map(|_| self.modal.width),
@@ -608,7 +618,7 @@ impl<'s> Popover<'_, '_, 's> {
                 .then_some(crate::WidgetRole::ComboBox),
             expanded: Some(self.modal.state.is_open() && !self.modal.state.is_preview()),
             disabled,
-            styled_button: trigger_text.is_some(),
+            styled_button: trigger_text.is_some() || self.ghost_trigger,
             font_size: metrics.font_size,
             transition_ms: metrics.interaction_ms,
             padding_x: Some(metrics.spacing as f32 * 3.5),
@@ -658,9 +668,35 @@ impl<'s> Popover<'_, '_, 's> {
             style.border_width = 0.;
             style.layout.position = crate::Position::Relative;
         }
+        if custom_trigger {
+            style.align = Some(Align::Center);
+            if icon_only {
+                style.justify = Some(Justify::Center);
+                style.padding_y = Some(0.);
+            }
+        }
+        if self.ghost_trigger {
+            let height = f32::from(metrics.control_height);
+            style.height = Some(height);
+            style.padding_y = Some(0.);
+            style.border_width = 0.;
+            style.background = None;
+            style.hover_background = Some(Color::ControlHover);
+            style.pressed_background = Some(Color::ControlPressed);
+            style.radius = if icon_only {
+                height / 2.
+            } else {
+                f32::from(metrics.radius)
+            };
+            style.width = if icon_only { Some(height) } else { style.width };
+            if !icon_only {
+                style.padding_x = Some(f32::from(metrics.spacing) * 2.5);
+                style.justify = Some(Justify::Start);
+            }
+        }
         let (_, clicked) = ui.element(
             self.modal.key,
-            if trigger_text.is_some() || glass.is_some() {
+            if trigger_text.is_some() || custom_trigger {
                 Kind::ButtonBase
             } else {
                 Kind::Button
@@ -668,7 +704,7 @@ impl<'s> Popover<'_, '_, 's> {
             style,
             self.modal.title.as_ref(),
             |cx| {
-                if let Some(glass) = glass {
+                if let Some(glass) = glass.filter(|_| !self.ghost_trigger) {
                     if trigger_glass && liquid_list {
                         let face = if tinted_icon_trigger {
                             crate::materials::GlassFace::Group(false)
@@ -685,35 +721,33 @@ impl<'s> Popover<'_, '_, 's> {
                             cx.pressed(),
                         );
                     }
-                    if trigger_text.is_none() {
-                        if let Some((icon, _)) = trigger_icon {
-                            crate::widgets::svg(cx, &icon)
-                                .size(16., 16.)
-                                .color(if tinted_icon_trigger {
-                                    Color::Literal(0x171717)
-                                } else {
-                                    Color::Foreground
-                                })
-                                .opacity(label_opacity);
-                        }
-                        if !icon_only {
-                            crate::widgets::text(cx, self.modal.title.as_ref())
-                                .opacity(label_opacity)
-                                .weight(
-                                    if self.modal.panel_role == Some(crate::WidgetRole::Menu) {
-                                        600
-                                    } else if liquid_list {
-                                        500
-                                    } else {
-                                        400
-                                    },
-                                );
-                        }
-                        if liquid_list && trigger_icon.is_none() {
-                            crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN)
-                                .size(16., 16.)
-                                .opacity(label_opacity * 0.6);
-                        }
+                }
+                if custom_trigger && trigger_text.is_none() {
+                    if let Some((icon, _)) = trigger_icon {
+                        crate::widgets::svg(cx, &icon)
+                            .size(16., 16.)
+                            .color(if tinted_icon_trigger {
+                                Color::Literal(0x171717)
+                            } else {
+                                Color::Foreground
+                            })
+                            .opacity(label_opacity);
+                    }
+                    if !icon_only {
+                        crate::widgets::text(cx, self.modal.title.as_ref())
+                            .opacity(label_opacity)
+                            .weight(if self.modal.panel_role == Some(crate::WidgetRole::Menu) {
+                                600
+                            } else if liquid_list {
+                                500
+                            } else {
+                                400
+                            });
+                    }
+                    if liquid_list && trigger_icon.is_none() {
+                        crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN)
+                            .size(16., 16.)
+                            .opacity(label_opacity * 0.6);
                     }
                 }
                 if let Some(shown) = trigger_text.as_deref() {

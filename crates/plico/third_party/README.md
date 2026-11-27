@@ -79,6 +79,10 @@ and shadow from `glass-popup.tsx` and `engine.ts` at the same revision.
 The clear Play button face follows `glass-button-clear.tsx`,
 `glass-button.tsx`, `glass-layer.tsx`, and `engine.ts` at the same
 revision for its XL layout, refraction curve, rim lighting, and shadow.
+Web-derived glass faces use the `engine.ts` signed-distance pixel footprint
+(`fwidth`) and forward-sampled refraction direction. Custom glass also uses
+the WebGL coverage mask, while the MyGO Regular and Clear presets use
+MyGO's linear coverage.
 
 The popup opening and replay curves, joined Select contour, and centered
 menu and popover growth adapt `glass-popup.tsx` and `engine.ts` at that
