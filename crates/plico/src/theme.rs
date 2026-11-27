@@ -200,7 +200,7 @@ impl Theme {
             control_hover: 0x323236,
             control_pressed: 0x3c3c41,
             accent_hover: 0x60a5fa,
-            accent_pressed: 0x427ae8,
+            accent_pressed: 0x427fea,
             focus: 0x436da1,
             info: 0x93c5fd,
             success: 0x22c55e,

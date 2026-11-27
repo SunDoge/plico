@@ -444,13 +444,14 @@ fn primary_glass_buttons_keep_default_theme_label_contrast() {
         plico::Theme::dark(),
     ] {
         let mut source = Source::with_clock(Primary(preset), plico::VirtualClock::default());
-        let theme = source.theme();
-        let label = theme.on_accent;
         let mut text = TextContext::new();
         let mut scene = Scene::new();
         source
             .render_frame(&mut scene, &mut text, (120, 40), 1.)
             .unwrap();
+        // The first frame installs the view's theme in the engine.
+        let label = source.theme().on_accent;
+        assert_eq!(label, preset.on_accent);
         let pixels = renderer
             .render_scene(&scene, [120, 40], [0.; 4], false)
             .unwrap();
@@ -463,7 +464,11 @@ fn primary_glass_buttons_keep_default_theme_label_contrast() {
                 let background = luminance([pixels[i], pixels[i + 1], pixels[i + 2]]);
                 let ratio =
                     (background.max(foreground) + 0.05) / (background.min(foreground) + 0.05);
-                assert!(ratio >= 4.5, "primary label contrast {ratio} at ({x},{y})");
+                assert!(
+                    ratio >= 4.5,
+                    "primary label contrast {ratio} at ({x},{y}), foreground #{label:06x}, background {:?}",
+                    &pixels[i..i + 3]
+                );
             }
         }
     }
