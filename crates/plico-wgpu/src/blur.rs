@@ -15,6 +15,7 @@ pub(crate) struct Workspace {
     temporary: wgpu::Texture,
     pub output: wgpu::Texture,
     uniforms: [wgpu::Buffer; 2],
+    parameters: Option<[u32; 3]>,
     binds: [wgpu::BindGroup; 2],
     /// Destination views per axis; render passes need them as attachments,
     /// compute passes already address them through the bind group.
@@ -27,6 +28,31 @@ pub(crate) struct Timing {
     pub readback: wgpu::Buffer,
 }
 impl Workspace {
+    pub fn output_view(&self) -> &wgpu::TextureView {
+        &self.destinations[1]
+    }
+
+    fn update_parameters(
+        &mut self,
+        queue: &wgpu::Queue,
+        sigma: f32,
+        edge: plico_renderer::filter::BlurEdge,
+        radius: u32,
+    ) {
+        let parameters = [sigma.to_bits(), edge as u32, radius];
+        if self.parameters != Some(parameters) {
+            let [sigma, edge, radius] = parameters;
+            for (axis, buffer) in self.uniforms.iter().enumerate() {
+                queue.write_buffer(
+                    buffer,
+                    0,
+                    bytemuck::cast_slice(&[sigma, axis as u32, edge, radius]),
+                );
+            }
+            self.parameters = Some(parameters);
+        }
+    }
+
     pub fn bytes(&self) -> u64 {
         let size = self.output.size();
         u64::from(size.width) * u64::from(size.height) * 4 * 2
@@ -216,9 +242,10 @@ impl Blur {
                 }),
             }
         });
-        let timing = device
-            .features()
-            .contains(wgpu::Features::TIMESTAMP_QUERY)
+        // Only the isolated-filter unit profiler reads these query buffers.
+        // The app frame timer already brackets both passes with its frame
+        // query; resolving four extra timestamps per blur would skew it.
+        let timing = (cfg!(test) && device.features().contains(wgpu::Features::TIMESTAMP_QUERY))
             .then(|| Timing {
                 queries: device.create_query_set(&wgpu::QuerySetDescriptor {
                     label: Some("Plico blur timestamps"),
@@ -242,38 +269,48 @@ impl Blur {
             temporary,
             output,
             uniforms,
+            parameters: None,
             binds,
             destinations,
             timing,
         }
     }
+    pub fn dispatch_backdrop_axes(
+        &self,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::ComputePass<'_>,
+        workspace: &mut Workspace,
+        sigma: f32,
+        radius: u32,
+    ) {
+        let Pass::Compute(pipeline) = &self.pass else {
+            unreachable!("fixed backdrops require compute");
+        };
+        workspace.update_parameters(
+            queue,
+            sigma,
+            plico_renderer::filter::BlurEdge::Clamp,
+            radius,
+        );
+        let size = workspace.temporary.size();
+        pass.set_pipeline(pipeline);
+        for bind in &workspace.binds {
+            pass.set_bind_group(0, bind, &[]);
+            pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
+        }
+    }
+
     pub fn encode(
         &self,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
-        workspace: &Workspace,
+        workspace: &mut Workspace,
         sigma: f32,
         edge: plico_renderer::filter::BlurEdge,
-    ) {
-        self.encode_with_radius(queue, encoder, workspace, sigma, edge, 0);
-    }
-
-    pub fn encode_with_radius(
-        &self,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        workspace: &Workspace,
-        sigma: f32,
-        edge: plico_renderer::filter::BlurEdge,
-        radius: u32,
     ) {
         let size = workspace.temporary.size();
+        workspace.update_parameters(queue, sigma, edge, 0);
         for axis in 0..2 {
-            queue.write_buffer(
-                &workspace.uniforms[axis],
-                0,
-                bytemuck::cast_slice(&[sigma.to_bits(), axis as u32, edge as u32, radius]),
-            );
             match &self.pass {
                 Pass::Compute(pipeline) => {
                     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

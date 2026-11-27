@@ -577,6 +577,10 @@ pub struct Style {
     /// Paint-only translation in logical pixels, applied after layout.
     #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub translate: [f32; 2],
+    /// This translation is a presentation offset from the resting layout.
+    #[serde(default)]
+    #[invalidates(PAINT)]
+    pub translation_from_rest: bool,
     /// Paint-only scale around the center of the border box.
     #[invalidates(TRANSFORM, HIT_TEST, PAINT, SEMANTICS)]
     pub scale: [f32; 2],
@@ -721,6 +725,7 @@ impl Default for Style {
             font_family: FontFamily::Default,
             opacity: 1.,
             translate: [0., 0.],
+            translation_from_rest: false,
             scale: [1., 1.],
             radius: 0.,
             transition_ms: 0,

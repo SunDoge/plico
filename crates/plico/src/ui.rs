@@ -236,6 +236,13 @@ impl<'e> UiContext<'e> {
     pub fn layout_size(&self) -> Option<[f32; 2]> {
         self.engine.layout_size(self.parent)
     }
+    /// The current container's last presented border box in window coordinates,
+    /// as `[left, top, right, bottom]`, before ancestor clipping. Reading it
+    /// opts into geometry feedback even on otherwise presentation-only frames.
+    pub fn presentation_bounds(&self) -> Option<[f32; 4]> {
+        self.engine.presentation_bounds(self.parent)
+    }
+
     /// Request a logical vertical offset for the current scroll container.
     pub fn scroll_to_y(&mut self, offset: f32) {
         if offset.is_finite() && offset >= 0. {
@@ -317,6 +324,7 @@ impl<'e> UiContext<'e> {
             accordion_items: false,
             material: None,
             glass_group: false,
+            shared_element: None,
         }
     }
     #[inline(always)]
@@ -778,15 +786,15 @@ impl<'e> UiContext<'e> {
         let checked = *value;
         let mut inner = self.leaf(kind, label.into());
         inner.style.checked = checked;
-        inner.style.transition_ms = metrics.interaction_ms;
-        inner.style.padding = 0.;
+        metrics.apply_control_frame(&mut inner.style);
+        inner.style.padding_y = None;
         inner.style.gap = metrics.spacing as f32 * if kind == Kind::Switch { 1.5 } else { 2. };
         // The toggle row itself is transparent and must not clip its retained
         // indicator at the left edge. The switch/checkbox fragment owns its
         // own track/box radius.
         inner.style.radius = 0.;
-        inner.style.min_height =
-            Some(metrics.space(if kind == Kind::Switch { 5 } else { 4 }) as f32);
+        let indicator_height = metrics.space(if kind == Kind::Switch { 5 } else { 4 });
+        inner.style.min_height = Some(f32::from(metrics.control_height.max(indicator_height)));
         Toggle { inner, value }
     }
     #[inline(always)]

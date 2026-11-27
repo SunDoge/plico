@@ -524,6 +524,18 @@ impl Default for ScrollbarStyle {
     }
 }
 
+/// Retained transform information only needed while a node moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum MotionTransform {
+    /// Use the authored runtime transform as-is.
+    #[default]
+    None,
+    /// An animation-owned affine replaces the authored runtime transform.
+    Affine([f32; 6]),
+    /// The runtime transform is the sampled translation. This is its resting origin.
+    RestingTranslation([f32; 2]),
+}
+
 /// Host-owned paint content that is not part of the CSS cascade.
 #[derive(Clone, Default)]
 pub struct HostPaint {
@@ -549,8 +561,8 @@ pub struct HostPaint {
     pub intrinsic_size: Option<[f32; 2]>,
     /// Host-driven affine coefficients composed after static transforms.
     pub runtime_transform: Option<[f32; 6]>,
-    /// Renderer-owned animated affine coefficients.
-    pub motion_transform: Option<[f32; 6]>,
+    /// Renderer-owned motion transform state.
+    pub motion_transform: MotionTransform,
     /// Stable raster scale divided by sampled scale during motion; zero means identity.
     pub raster_scale_correction: f32,
     /// Renderer-owned opacity multiplier.
@@ -587,8 +599,8 @@ pub struct Paint {
     pub transform_origin: [IrLength; 2],
     /// Host-driven state, composed after the static CSS transform.
     pub runtime_transform: Option<[f32; 6]>,
-    /// Renderer-owned animation composed after the authored runtime transform.
-    pub motion_transform: Option<[f32; 6]>,
+    /// Renderer-owned motion transform state.
+    pub motion_transform: MotionTransform,
     /// Stable raster scale divided by sampled scale during motion; zero means identity.
     pub raster_scale_correction: f32,
     /// Renderer-owned multiplier composed with the authored opacity.

@@ -1,6 +1,6 @@
 use super::*;
 
-fn backdrop_region(
+pub(crate) fn backdrop_region(
     rect: [f32; 4],
     effect: &plico_renderer::ShaderEffect,
     size: [u32; 2],
@@ -176,6 +176,7 @@ pub(super) fn encode_backdrop_step<'p>(
     frame_view: &wgpu::TextureView,
     rect: [f32; 4],
     effect: &plico_renderer::ShaderEffect,
+    cache: Option<(usize, bool)>,
     force_generic: bool,
     size: [u32; 2],
     scissor: [u32; 4],
@@ -198,7 +199,7 @@ pub(super) fn encode_backdrop_step<'p>(
             && height.is_multiple_of(plan.down)
             && crate::backdrop_gaussian::GaussianBackdrops::supported(device)
     }) {
-        let (view, original, passes, bytes) = gaussian
+        let (view, original, passes, bytes, copied) = gaussian
             .get_or_insert_with(|| crate::backdrop_gaussian::GaussianBackdrops::new(device))
             .encode(
                 device,
@@ -207,9 +208,10 @@ pub(super) fn encode_backdrop_step<'p>(
                 &target.texture,
                 [left, top, width, height],
                 plan,
+                cache.map(|(command, clean)| (effect.id(), command, clean)),
             );
         fixed_gaussian = true;
-        stats.backdrop_copies += 1;
+        stats.backdrop_copies += u64::from(copied);
         stats.backdrop_textures +=
             1 + u64::from(plan.down > 1) + u64::from(plan.reduced_sigma > 0.) * 2;
         stats.backdrop_mip_passes += passes;

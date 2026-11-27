@@ -36,7 +36,7 @@ mod persisted_state;
 pub use persisted_state::PersistedStatePersistence;
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watch;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod frame_pacing;
 #[cfg(target_os = "linux")]
 mod linux_preferences;

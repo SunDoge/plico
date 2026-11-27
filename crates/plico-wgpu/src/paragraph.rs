@@ -11,7 +11,12 @@ use plico_renderer::{
     },
     text::FontAsset,
 };
-use std::{cell::RefCell, num::NonZeroUsize, rc::Rc, sync::Arc};
+use std::{
+    cell::{OnceCell, RefCell},
+    num::NonZeroUsize,
+    rc::Rc,
+    sync::Arc,
+};
 const PARAGRAPH_BYTES: usize = 64 * 1024 * 1024;
 /// Accounted cache payload, not native-library allocation size or process RSS.
 #[derive(Clone, Copy, Debug, Default)]
@@ -42,12 +47,24 @@ pub(crate) struct Cache {
 struct Paragraph {
     request: Arc<ParagraphRequest>,
     layout: Rc<GlyphLayout>,
-    metrics: ParagraphMetrics,
+    metrics: OnceCell<ParagraphMetrics>,
     payload_bytes: usize,
 }
 impl NativeParagraph for Paragraph {
     fn metrics(&self) -> ParagraphMetrics {
-        self.metrics
+        *self.metrics.get_or_init(|| {
+            let lines = self.layout.line_metrics();
+            ParagraphMetrics {
+                width: self.layout.logical_size[0] as f32,
+                height: self.layout.logical_size[1] as f32,
+                intrinsic: self.layout.intrinsic_widths().map(|v| v as f32),
+                baselines: [
+                    lines.first().map(|line| line[4] as f32),
+                    lines.last().map(|line| line[4] as f32),
+                ],
+                first_line_height: lines.first().map_or(0., |line| line[3] as f32),
+            }
+        })
     }
     fn hit_test(&self, x: f32, y: f32) -> usize {
         self.layout.hit_test(x as f64, y as f64).unwrap_or(0)
@@ -110,6 +127,15 @@ impl Cache {
             return Ok(p.clone());
         }
         self.stats.misses += 1;
+        tracing::trace!(
+            target: "plico::perf::paragraph",
+            text_bytes = request.text.len(),
+            font_size = request.font_size,
+            wrapping = request.wrap,
+            width = request.width,
+            scale,
+            "native paragraph cache miss"
+        );
         if request.max_lines != 0 && request.ellipsis && request.text.contains('\n') {
             return Err(rejected(format!(
                 "unsupported paragraph: runs={} spacing={} line_height={:?} max_lines={} ellipsis={} align={:?}",
@@ -177,7 +203,6 @@ impl Cache {
                 .layout_rich(&native, options, &spans)
                 .map_err(|e| rejected(e.to_string()))?,
         );
-        let lines = layout.line_metrics();
         let payload_bytes = std::mem::size_of::<Paragraph>()
             + layout.rust_payload_bytes()
             + geometry.text.len()
@@ -186,16 +211,9 @@ impl Cache {
         let p = Rc::new(Paragraph {
             payload_bytes,
             request: Arc::new(geometry),
-            metrics: ParagraphMetrics {
-                width: layout.logical_size[0] as f32,
-                height: layout.logical_size[1] as f32,
-                intrinsic: layout.intrinsic_widths().map(|v| v as f32),
-                baselines: [
-                    lines.first().map(|l| l[4] as f32),
-                    lines.last().map(|l| l[4] as f32),
-                ],
-                first_line_height: lines.first().map_or(0., |l| l[3] as f32),
-            },
+            // Paint only consumes the glyph layout. Intrinsic measurement
+            // needs two extra Pango layouts and is shared lazily with UI layout.
+            metrics: OnceCell::new(),
             layout,
         });
         if payload_bytes <= self.byte_limit {
@@ -316,6 +334,12 @@ impl Renderer {
         }));
         Ok(())
     }
+    #[tracing::instrument(
+        level = "debug",
+        target = "plico::perf",
+        name = "wgpu.paragraph",
+        skip_all
+    )]
     pub(crate) fn paragraph_layout(
         &mut self,
         request: Arc<ParagraphRequest>,
@@ -370,6 +394,10 @@ mod tests {
             .unwrap();
         assert_eq!(cache.entries.len(), 0);
         assert_eq!(cache.stats.rust_payload_bytes, 0);
-        assert!(uncached.metrics.width > 0.);
+        assert!(uncached.metrics.get().is_none());
+        let measured = uncached.metrics();
+        assert!(measured.width > 0.);
+        assert!(measured.intrinsic[1] >= measured.intrinsic[0]);
+        assert_eq!(uncached.metrics.get().unwrap().width, measured.width);
     }
 }

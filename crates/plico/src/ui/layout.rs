@@ -12,6 +12,7 @@ pub struct Layout<'u, 'e> {
     pub(super) accordion_items: bool,
     pub(super) material: Option<crate::LiquidGlass>,
     pub(super) glass_group: bool,
+    pub(super) shared_element: Option<(Key, crate::Animation)>,
 }
 impl Layout<'_, '_> {
     /// Attach a read-only numeric range and its accessible name to a composed
@@ -324,13 +325,31 @@ impl Layout<'_, '_> {
     #[inline(always)]
     pub fn translate(mut self, x: f32, y: f32) -> Self {
         self.style.translate = [x, y];
+        self.style.translation_from_rest = false;
         self
     }
+    /// Present a sampled offset from the layout position, preserving the
+    /// resting raster phase of text during fractional translation.
+    pub fn translate_from_rest(mut self, x: f32, y: f32) -> Self {
+        self = self.translate(x, y);
+        self.style.translation_from_rest = true;
+        self
+    }
+
     #[inline(always)]
     pub fn scale(mut self, x: f32, y: f32) -> Self {
         self.style.scale = [x, y];
         self
     }
+    /// Match this container across parents by a stable key in this window.
+    /// Declare one visible owner per key. On replacement, the host moves the
+    /// incoming subtree from the previous owner's presented bounds.
+    pub fn shared_element(mut self, key: impl Into<Key>, animation: crate::Animation) -> Self {
+        animation.validate();
+        self.shared_element = Some((key.into(), animation));
+        self
+    }
+
     /// Lay out a shared element at its resting origin and present it at a
     /// sampled rectangle. Installs the absolute placement, size, translation
     /// and scale; use this on the outer wrapper of the moving subtree.
@@ -339,7 +358,7 @@ impl Layout<'_, '_> {
         self.absolute(pose.origin[0], pose.origin[1])
             .width(width)
             .height(height)
-            .translate(pose.translation[0], pose.translation[1])
+            .translate_from_rest(pose.translation[0], pose.translation[1])
             .scale(pose.scale(), pose.scale())
     }
 
@@ -609,6 +628,9 @@ impl Layout<'_, '_> {
             self.style,
             Cow::Borrowed(""),
         );
+        if let Some(spec) = self.shared_element {
+            self.ui.engine.shared_elements.insert(entity, spec);
+        }
         let node = self.ui.engine.nodes.get_mut(entity).unwrap();
         node.set_semantic_label(self.semantic_label.as_deref().unwrap_or(""));
         if node.numeric != self.numeric {

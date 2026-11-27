@@ -13,7 +13,7 @@ use peniko::{BlendMode, Color, Fill};
 
 use crate::layout::PlacedNode;
 use crate::scrollbar::{ScrollAxis, thumb as scrollbar_thumb, track as scrollbar_track};
-use crate::style::{CornerRadii, IrLength, PaintTransform, Shadow};
+use crate::style::{CornerRadii, IrLength, MotionTransform, PaintTransform, Shadow};
 use crate::text::TextContext;
 
 /// Resolve the node-local static CSS and runtime affine transforms separately.
@@ -36,13 +36,13 @@ pub fn resolve_local_transforms(node: &PlacedNode) -> (Affine, Affine) {
             PaintTransform::Matrix(matrix) => Affine::new(matrix.map(f64::from)),
         };
     }
-    let presented_transform = node
-        .paint
-        .motion_transform
-        .or(node.paint.runtime_transform)
-        .map_or(Affine::IDENTITY, |matrix| {
-            Affine::new(matrix.map(f64::from))
-        });
+    let presented = match node.paint.motion_transform {
+        MotionTransform::Affine(matrix) => Some(matrix),
+        _ => node.paint.runtime_transform,
+    };
+    let presented_transform = presented.map_or(Affine::IDENTITY, |matrix| {
+        Affine::new(matrix.map(f64::from))
+    });
     (static_transform, presented_transform)
 }
 
@@ -52,7 +52,7 @@ pub fn resolve_node_transform(node: &PlacedNode, parent_transform: Affine) -> Af
     // Painter.add identity fast path, keep those nodes on the parent's matrix
     // without building and multiplying two origin translations plus identities.
     if node.paint.transform.is_empty()
-        && node.paint.motion_transform.is_none()
+        && !matches!(node.paint.motion_transform, MotionTransform::Affine(_))
         && node.paint.runtime_transform.is_none()
     {
         return parent_transform;
@@ -229,6 +229,50 @@ struct SubtreeInk {
 pub struct SceneScratch {
     subtree_ink: Vec<SubtreeInk>,
     subtree_stack: Vec<usize>,
+    text_raster: TextRasterWatch,
+}
+
+impl SceneScratch {
+    /// The next frame restores the exact text density if the scale has settled.
+    pub fn text_raster_needs_frame(&self) -> bool {
+        self.text_raster.bucketed != 0
+    }
+}
+
+#[derive(Default)]
+struct TextRasterWatch {
+    frame: u64,
+    scales: HashMap<NodeId, (u64, [f64; 2])>,
+    bucketed: usize,
+}
+
+impl TextRasterWatch {
+    fn begin_frame(&mut self) {
+        self.frame += 1;
+        self.bucketed = 0;
+    }
+
+    fn density(&mut self, id: NodeId, scale: [f64; 2], device: f64, em: f64) -> Option<f64> {
+        let previous = self.scales.insert(id, (self.frame, scale))?;
+        if previous.1 == scale {
+            return None;
+        }
+        // MyGO ui/rasterscale.go (MIT, 74c3f26d): eight steps per octave,
+        // rounding up with a small allowance for transform rounding.
+        let ideal = scale[0].max(scale[1]).clamp(0.125, 8.);
+        let bucket = ((ideal.log2() * 8. - 0.05).ceil() / 8.).exp2();
+        let limit = (512. / (em * device)).clamp(1., 8.);
+        let density = bucket.min(limit) * device;
+        if density == scale[0] * device {
+            return None;
+        }
+        self.bucketed += 1;
+        Some(density)
+    }
+
+    fn finish_frame(&mut self) {
+        self.scales.retain(|_, (last, _)| *last == self.frame);
+    }
 }
 
 /// Paint fragments for layout-stable frames. Each entry is balanced on its own
@@ -242,14 +286,28 @@ pub struct SceneParts {
     pub reused: usize,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct TextRaster {
+    factor: f64,
+    phase: [f64; 2],
+}
+
+impl TextRaster {
+    const RESTING: Self = Self {
+        factor: 1.,
+        phase: [0.; 2],
+    };
+}
+
 #[derive(Clone)]
 struct ScenePart {
     scene: Scene,
     end: usize,
     clip: Rect,
-    raster_factor: f64,
     transform: Affine,
     world_opacity: f32,
+    inherited_text: TextRaster,
+    text_needs_frame: bool,
 }
 
 fn prepare_subtree_ink(nodes: &[PlacedNode], out: &mut Vec<SubtreeInk>, stack: &mut Vec<usize>) {
@@ -740,14 +798,16 @@ fn draw_image(scene: &mut Scene, node: &PlacedNode, transform: Affine, device_sc
     );
 }
 
-fn draw_text_at_raster_scale(
-    scene: &mut Scene,
-    node: &PlacedNode,
-    tcx: &mut TextContext,
-    transform: Affine,
-    device_scale: f64,
-    raster_factor: f64,
-) {
+fn draw_text_at_raster_scale(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) {
+    let &EncodeCtx {
+        node,
+        node_transform: transform,
+        device_scale,
+        raster_factor,
+        text_phase,
+        raster_density,
+        ..
+    } = enc;
     if tcx.has_native_paragraphs() {
         let Some(request) = node_paragraph_request(tcx, node) else {
             return;
@@ -770,19 +830,30 @@ fn draw_text_at_raster_scale(
         }
         // Measurements and hit-testing populate the host's shared paragraph cache.
         tcx.native_paragraph(request.clone());
-        let request = if raster_factor != 1. {
-            let [a, b, c, d, _, _] = origin.as_coeffs();
-            if a > 0. && (a - d).abs() < 1e-9 && b.abs() < 1e-9 && c.abs() < 1e-9 {
-                let mut request = (*request).clone();
-                request.raster_scale_hint = Some((a * raster_factor * 10000.).round() / 10000.);
-                Arc::new(request)
-            } else {
-                request
+        let raster_density = raster_density.or_else(|| {
+            if raster_factor == 1. {
+                return None;
             }
+            let [a, b, c, d, _, _] = origin.as_coeffs();
+            (a > 0. && (a - d).abs() < 1e-9 && b.abs() < 1e-9 && c.abs() < 1e-9)
+                .then(|| (a * raster_factor * 10000.).round() / 10000.)
+        });
+        let request = if let Some(density) = raster_density {
+            let mut request = (*request).clone();
+            request.raster_scale_hint = Some(density);
+            Arc::new(request)
         } else {
             request
         };
-        scene.draw_paragraph(request, origin);
+        if text_phase == [0.; 2] {
+            scene.draw_paragraph(request, origin);
+        } else {
+            scene.commands.push(crate::PaintCommand::MovingParagraph {
+                request,
+                transform: origin,
+                offset: text_phase.map(|offset| offset * device_scale),
+            });
+        }
         return;
     }
     let Some(layout) = layout_node_text(tcx, node) else {
@@ -1081,6 +1152,18 @@ pub fn build_presented_scene_scaled_layers_with_scratch(
     );
 }
 
+/// A matched subtree lifted out of its original clips for one presentation.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub struct PresentedFlight {
+    pub start: usize,
+    pub end: usize,
+    pub layer_end: usize,
+    pub clip: [f32; 4],
+    pub raster_correction: f64,
+    pub text_phase: [f64; 2],
+}
+
 /// Update only dirty paint fragments. The host supplies dirty IDs including
 /// their ancestors, or requests a reset if the preorder changed.
 #[doc(hidden)]
@@ -1094,7 +1177,9 @@ pub fn patch_presented_scene(
     base_color: Color,
     scale: f64,
     parts: &mut SceneParts,
+    scratch: &mut SceneScratch,
     dirty: Option<&HashSet<NodeId>>,
+    flights: &[PresentedFlight],
 ) {
     let viewport = (size.0, size.1, scale.to_bits());
     let dirty = dirty.filter(|_| parts.viewport == Some(viewport));
@@ -1115,6 +1200,7 @@ pub fn patch_presented_scene(
     if base_color != Color::TRANSPARENT {
         scene.fill(Fill::NonZero, device, base_color, None, &bg);
     }
+    scratch.text_raster.begin_frame();
     let mut encoder = Encoder {
         tcx,
         device,
@@ -1123,10 +1209,26 @@ pub fn patch_presented_scene(
         device_scale: scale,
         use_presentations: true,
         parts: Some(parts),
+        flights,
+        text_raster: Some(&mut scratch.text_raster),
     };
-    encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, 1.);
+    encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, TextRaster::RESTING);
+    encoder.encode_flights_at(scene, nodes, nodes.len());
     encoder.parts = None;
-    encoder.encode_nodes::<false>(scene, overlays, &[], Affine::IDENTITY, bg, 1.);
+    encoder.flights = &[];
+    encoder.encode_nodes::<false>(
+        scene,
+        overlays,
+        &[],
+        Affine::IDENTITY,
+        bg,
+        TextRaster::RESTING,
+    );
+    let text = &mut scratch.text_raster;
+    // A reused fragment did not visit its children, but their last scale
+    // still determines the raster density when they next change.
+    text.scales
+        .retain(|id, (last, _)| *last == text.frame || parts.by_node.contains_key(id));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1147,6 +1249,9 @@ fn build_scene_scaled_layers_impl(
     if base_color != Color::TRANSPARENT {
         scene.fill(Fill::NonZero, device, base_color, None, &bg);
     }
+    let mut local_scratch = SceneScratch::default();
+    let scratch = scratch.unwrap_or(&mut local_scratch);
+    scratch.text_raster.begin_frame();
     let mut encoder = Encoder {
         tcx,
         device,
@@ -1155,22 +1260,37 @@ fn build_scene_scaled_layers_impl(
         device_scale,
         use_presentations,
         parts: None,
+        flights: &[],
+        text_raster: use_presentations.then_some(&mut scratch.text_raster),
     };
-    let mut local_scratch = SceneScratch::default();
-    let scratch = scratch.unwrap_or(&mut local_scratch);
     for nodes in roots {
         let subtree_ink = (use_presentations && should_prepare_subtree_ink(nodes, bg)).then(|| {
             prepare_subtree_ink(nodes, &mut scratch.subtree_ink, &mut scratch.subtree_stack);
             scratch.subtree_ink.as_slice()
         });
         if let Some(subtree_ink) = subtree_ink {
-            encoder.encode_nodes::<true>(scene, nodes, subtree_ink, Affine::IDENTITY, bg, 1.);
+            encoder.encode_nodes::<true>(
+                scene,
+                nodes,
+                subtree_ink,
+                Affine::IDENTITY,
+                bg,
+                TextRaster::RESTING,
+            );
         } else {
             // Keep the common all-visible and small-scene path monomorphized
             // without one optional-ink branch per node.
-            encoder.encode_nodes::<false>(scene, nodes, &[], Affine::IDENTITY, bg, 1.);
+            encoder.encode_nodes::<false>(
+                scene,
+                nodes,
+                &[],
+                Affine::IDENTITY,
+                bg,
+                TextRaster::RESTING,
+            );
         }
     }
+    scratch.text_raster.finish_frame();
 }
 
 struct Encoder<'a> {
@@ -1181,6 +1301,8 @@ struct Encoder<'a> {
     device_scale: f64,
     use_presentations: bool,
     parts: Option<&'a mut SceneParts>,
+    flights: &'a [PresentedFlight],
+    text_raster: Option<&'a mut TextRasterWatch>,
 }
 
 #[derive(Clone, Copy)]
@@ -1197,7 +1319,7 @@ impl Encoder<'_> {
         subtree_ink: &[SubtreeInk],
         parent_transform: Affine,
         inherited_clip: Rect,
-        raster_factor: f64,
+        inherited_text: TextRaster,
     ) {
         let batch = NodeBatch { nodes, subtree_ink };
         let mut cursor = 0;
@@ -1208,8 +1330,39 @@ impl Encoder<'_> {
                 &mut cursor,
                 parent_transform,
                 inherited_clip,
-                raster_factor,
+                inherited_text,
             );
+        }
+    }
+
+    fn encode_flights_at(&mut self, scene: &mut Scene, nodes: &[PlacedNode], layer_end: usize) {
+        for flight in self
+            .flights
+            .iter()
+            .filter(|flight| flight.layer_end == layer_end)
+        {
+            let [left, top, right, bottom] = flight.clip.map(f64::from);
+            let clip = Rect::new(left, top, right, bottom).intersect(self.viewport);
+            if clip.is_zero_area() {
+                continue;
+            }
+            scene.push_clip_layer(self.device, &clip);
+            let mut cursor = flight.start;
+            self.encode_subtree_inner::<false>(
+                scene,
+                NodeBatch {
+                    nodes,
+                    subtree_ink: &[],
+                },
+                &mut cursor,
+                Affine::IDENTITY,
+                clip,
+                TextRaster {
+                    factor: flight.raster_correction,
+                    phase: flight.text_phase,
+                },
+            );
+            scene.pop_layer();
         }
     }
 
@@ -1226,8 +1379,15 @@ impl Encoder<'_> {
         cursor: &mut usize,
         parent_transform: Affine,
         inherited_clip: Rect,
-        raster_factor: f64,
+        inherited_text: TextRaster,
     ) {
+        if let Ok(i) = self
+            .flights
+            .binary_search_by_key(cursor, |flight| flight.start)
+        {
+            *cursor = self.flights[i].end;
+            return;
+        }
         if let Some(parts) = self.parts.as_mut() {
             let n = &batch.nodes[*cursor];
             let id = n.node_id;
@@ -1235,9 +1395,11 @@ impl Encoder<'_> {
             let world_opacity = n.world_opacity;
             if let Some(part) = parts.by_node.get(&id)
                 && part.clip == inherited_clip
-                && part.raster_factor == raster_factor
                 && part.transform == transform
                 && part.world_opacity == world_opacity
+                && part.inherited_text == inherited_text
+                // Settling is paint work even without a geometry change.
+                && !part.text_needs_frame
             {
                 *cursor = part.end;
                 scene.append_cached_scene(part.scene.clone(), Affine::IDENTITY);
@@ -1246,13 +1408,14 @@ impl Encoder<'_> {
             }
 
             let mut fragment = Scene::new();
+            let bucketed = self.text_raster.as_ref().map_or(0, |text| text.bucketed);
             self.encode_subtree_inner::<SUBTREE_CULL>(
                 &mut fragment,
                 batch,
                 cursor,
                 parent_transform,
                 inherited_clip,
-                raster_factor,
+                inherited_text,
             );
             let parts = self.parts.as_mut().unwrap();
             parts.by_node.insert(
@@ -1261,9 +1424,13 @@ impl Encoder<'_> {
                     scene: fragment.clone(),
                     end: *cursor,
                     clip: inherited_clip,
-                    raster_factor,
                     transform,
                     world_opacity,
+                    inherited_text,
+                    text_needs_frame: self
+                        .text_raster
+                        .as_ref()
+                        .is_some_and(|text| text.bucketed != bucketed),
                 },
             );
             parts.rebuilt += 1;
@@ -1275,7 +1442,7 @@ impl Encoder<'_> {
                 cursor,
                 parent_transform,
                 inherited_clip,
-                raster_factor,
+                inherited_text,
             );
         }
     }
@@ -1287,7 +1454,7 @@ impl Encoder<'_> {
         cursor: &mut usize,
         parent_transform: Affine,
         inherited_clip: Rect,
-        raster_factor: f64,
+        inherited_text: TextRaster,
     ) {
         let index = *cursor;
         if SUBTREE_CULL {
@@ -1303,6 +1470,9 @@ impl Encoder<'_> {
         if opacity <= 0.0 || inherited_clip.width() <= 0.0 || inherited_clip.height() <= 0.0 {
             *cursor += 1;
             while *cursor < batch.nodes.len() && batch.nodes[*cursor].depth > depth {
+                if depth == 0 && !self.flights.is_empty() {
+                    self.encode_flights_at(scene, batch.nodes, *cursor);
+                }
                 *cursor += 1;
             }
             return;
@@ -1314,7 +1484,23 @@ impl Encoder<'_> {
             resolve_node_transform(n, parent_transform)
         };
         let node_transform = self.device * css_transform;
-        let raster_factor = raster_factor
+        // MyGO ui/transition.go (MIT, f8f8a8df): only translated text
+        // retains its resting phase. A scaled or rotated subtree rasters
+        // with the transform it actually presents.
+        let [a, b, c, d, _, _] = css_transform.as_coeffs();
+        let text_phase = if [a, b, c, d] == [1., 0., 0., 1.] {
+            let mut phase = inherited_text.phase;
+            if let MotionTransform::RestingTranslation(rest) = n.paint.motion_transform {
+                let current = n.paint.runtime_transform.map_or([0.; 2], |m| [m[4], m[5]]);
+                for axis in 0..2 {
+                    phase[axis] += f64::from(current[axis]) - f64::from(rest[axis]);
+                }
+            }
+            phase
+        } else {
+            [0.; 2]
+        };
+        let raster_factor = inherited_text.factor
             * f64::from(if n.paint.raster_scale_correction > 0. {
                 n.paint.raster_scale_correction
             } else {
@@ -1330,6 +1516,28 @@ impl Encoder<'_> {
             .own_clip
             .and_then(|clip| clip_bounds(clip, css_transform))
             .map_or(inherited_clip, |clip| inherited_clip.intersect(clip));
+        let raster_density = if paints_node
+            && n.paint.text.is_some()
+            && raster_factor == 1.
+            && a.is_finite()
+            && d.is_finite()
+            && a > 0.
+            && d > 0.
+            && b == 0.
+            && c == 0.
+            && self.tcx.has_native_paragraphs()
+        {
+            self.text_raster.as_mut().and_then(|watch| {
+                watch.density(
+                    n.node_id,
+                    [a, d],
+                    self.device_scale,
+                    f64::from(n.paint.font_size),
+                )
+            })
+        } else {
+            None
+        };
         let enc = EncodeCtx {
             node: n,
             node_transform,
@@ -1340,6 +1548,8 @@ impl Encoder<'_> {
             viewport: self.viewport,
             device_scale: self.device_scale,
             raster_factor,
+            text_phase,
+            raster_density,
         };
         let layers = encode_node(scene, self.tcx, &enc);
         *cursor += 1;
@@ -1350,7 +1560,10 @@ impl Encoder<'_> {
                 cursor,
                 css_transform,
                 child_clip,
-                raster_factor,
+                TextRaster {
+                    factor: raster_factor,
+                    phase: text_phase,
+                },
             );
         }
         // The scrollbar lives inside the node's border box, so the node's
@@ -1377,6 +1590,8 @@ struct EncodeCtx<'a> {
     viewport: Rect,
     device_scale: f64,
     raster_factor: f64,
+    text_phase: [f64; 2],
+    raster_density: Option<f64>,
 }
 fn encode_node(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) -> usize {
     let EncodeCtx {
@@ -1388,7 +1603,7 @@ fn encode_node(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) ->
         bg,
         viewport,
         device_scale,
-        raster_factor,
+        ..
     } = enc;
     let n: &PlacedNode = n;
     let device = *device;
@@ -1497,13 +1712,35 @@ fn encode_node(scene: &mut Scene, tcx: &mut TextContext, enc: &EncodeCtx<'_>) ->
     }
 
     if paints_node {
-        draw_text_at_raster_scale(scene, n, tcx, *node_transform, device_scale, *raster_factor);
+        draw_text_at_raster_scale(scene, tcx, enc);
     }
     layers
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_raster_watches_reuse_a_bucket_then_restore_exact_density() {
+        let node = taffy::NodeId::from(1_u64);
+        let mut text = super::TextRasterWatch::default();
+        let mut sample = |scale| {
+            text.begin_frame();
+            let density = text.density(node, scale, 2., 16.);
+            text.finish_frame();
+            (density, text.bucketed != 0)
+        };
+        assert_eq!(sample([1., 1.]), (None, false));
+        let (a, settling) = sample([1.11, 1.14]);
+        assert!(settling);
+        let (b, _) = sample([1.12, 1.16]);
+        assert_eq!(a, b);
+        assert!(a.unwrap() >= 1.16 * 2.);
+        assert_eq!(sample([1.12, 1.16]), (None, false));
+        text.begin_frame();
+        text.finish_frame();
+        assert!(text.scales.is_empty());
+    }
+
     use super::*;
     use crate::style::Shadow;
 
@@ -1777,7 +2014,7 @@ mod tests {
             paint: Default::default(),
         };
         node.paint.runtime_transform = Some([1.0, 0.0, 0.0, 1.0, 16.0, 0.0]);
-        node.paint.motion_transform = Some([1.0, 0.0, 0.0, 1.0, 8.0, 0.0]);
+        node.paint.motion_transform = MotionTransform::Affine([1.0, 0.0, 0.0, 1.0, 8.0, 0.0]);
 
         let (_, presented) = resolve_local_transforms(&node);
 
@@ -2043,6 +2280,8 @@ mod tests {
                 device_scale: 1.,
                 use_presentations: true,
                 parts: None,
+                flights: &[],
+                text_raster: None,
             }
             .encode_nodes::<SUBTREE_CULL>(
                 scene,
@@ -2050,7 +2289,7 @@ mod tests {
                 &scratch.subtree_ink,
                 Affine::IDENTITY,
                 viewport,
-                1.,
+                TextRaster::RESTING,
             );
             std::hint::black_box(scene.commands.len());
         }

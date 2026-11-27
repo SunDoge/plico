@@ -141,6 +141,40 @@ fn skeleton_uses_native_animation_without_redeclaring_the_view_and_can_go_idle()
 }
 
 #[test]
+fn liquid_badge_moves_its_ribbon_without_running_layout() {
+    use plico::VirtualClock;
+    use plico_renderer::{FrameSource, TextContext};
+    use plico_runtime::Source;
+    use std::time::Duration;
+
+    struct Badge;
+    impl HostView for Badge {
+        fn show(&mut self, cx: &mut UiContext) {
+            plico::widgets::liquid::badge(cx, "New", 76.);
+        }
+    }
+
+    let clock = VirtualClock::default();
+    let mut source = Source::with_clock(Badge, clock.clone());
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 320, 200);
+    source.build_frame(&mut text, 320, 200);
+    let glyph = source
+        .placed_nodes()
+        .iter()
+        .find(|node| node.world_opacity > 0. && node.paint.text.as_deref() == Some("New"))
+        .unwrap()
+        .node_id;
+    let initial = source.visual_bounds(glyph).unwrap();
+    for _ in 0..4 {
+        clock.advance(Duration::from_millis(16)).unwrap();
+        source.build_frame(&mut text, 320, 200);
+        assert_eq!(source.frame_diagnostics().backend.layout_runs, 0);
+    }
+    assert!(source.visual_bounds(glyph).unwrap()[0] < initial[0]);
+}
+
+#[test]
 fn migrated_semantic_status_tones_remain_distinguishable_on_default_surfaces() {
     fn luminance(rgb: u32) -> f64 {
         let linear = |shift: u32| {

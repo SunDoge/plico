@@ -243,6 +243,9 @@ pub struct Renderer {
     backdrop_prefilter: Option<crate::backdrop_prefilter::Prefilter>,
     backdrop_batch_prefilter: Option<crate::backdrop_batch::Prefilter>,
     backdrop_gaussian: Option<crate::backdrop_gaussian::GaussianBackdrops>,
+    pub(crate) backdrop_read_keys:
+        std::collections::HashMap<plico_renderer::ShaderEffectId, Option<(usize, bool)>>,
+    pub(crate) force_backdrop_refresh: bool,
     backdrop_pool: crate::backdrop_pool::Pool,
     force_separate_backdrops: bool,
     force_generic_backdrop: bool,
@@ -355,9 +358,12 @@ impl Renderer {
         &mut self,
         encoder: wgpu::CommandEncoder,
     ) -> wgpu::SubmissionIndex {
-        let final_command = encoder.finish();
+        let final_command = tracing::debug_span!(target: "plico::perf", "wgpu.finish_commands")
+            .in_scope(|| encoder.finish());
         let prefixes = std::mem::take(&mut self.frame_prefix_commands);
         self.frame_budget.command_buffers += prefixes.len() as u64 + 1;
+        let submit_span = tracing::debug_span!(target: "plico::perf", "wgpu.queue_submit");
+        let submit_guard = submit_span.enter();
         let submission = if self.split_submits {
             let mut commands = prefixes.into_iter().chain(std::iter::once(final_command));
             let first = commands.next().expect("a frame has a final command buffer");
@@ -373,7 +379,11 @@ impl Renderer {
             self.queue
                 .submit(prefixes.into_iter().chain(std::iter::once(final_command)))
         };
+        drop(submit_guard);
         self.images.commit_pending_mips();
+        if let Some(gaussian) = &mut self.backdrop_gaussian {
+            gaussian.commit_frame();
+        }
         submission
     }
 }
@@ -820,7 +830,7 @@ fn skip_interior_clip(instance: &mut Instance) -> bool {
     false
 }
 
-mod backdrop;
+pub(crate) mod backdrop;
 mod batch;
 mod cache;
 mod effects;

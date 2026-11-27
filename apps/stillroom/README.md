@@ -15,7 +15,7 @@ cargo run --locked -p stillroom -- \
   --record reports/stillroom/showcase.mp4
 ```
 
-缩略图与预览图按素材 ID 对应。打开动效使用
+缩略图与预览图按素材 ID 对应，由框架 `SharedElementMotion` 保持裁切、当前位置与速度。打开动效使用
 [MyGO Gallery 的 Magic Move 示例](https://github.com/egoist/mygo/blob/f651b1061d917336f31c3ede523cb49c524172eb/examples/gallery/main.go)
 的 450 ms、0.12 回弹参数。返回使用无回弹的 330 ms 弹簧参数，并沿用
 [MyGO 的共享元素交叉淡入](https://github.com/egoist/mygo/blob/f651b1061d917336f31c3ede523cb49c524172eb/ui/match.go)，

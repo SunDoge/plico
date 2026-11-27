@@ -107,6 +107,8 @@ pub struct WgpuWindow {
     surface_wake: Option<plico_renderer::WakeCallback>,
     window: Arc<dyn SurfaceHost>,
     config: wgpu::SurfaceConfiguration,
+    #[cfg(all(target_os = "linux", feature = "window"))]
+    wayland_clock: bool,
     configured_size: [u32; 2],
     damage_enabled: bool,
     present_skipped: bool,
@@ -136,7 +138,22 @@ impl WgpuWindow {
         Self::from_host(Arc::new(window), transparent)
     }
 
+    /// Let the host pace FIFO rendering by the Wayland output refresh interval
+    /// while using compositor redraw events to gate continuous drawing.
+    #[cfg(all(target_os = "linux", feature = "window"))]
+    pub fn new_with_wayland_clock(window: Arc<dyn Window>, transparent: bool) -> Result<Self> {
+        Self::from_host_with_clock(Arc::new(window), transparent, true)
+    }
+
     pub fn from_host(window: Arc<dyn SurfaceHost>, transparent: bool) -> Result<Self> {
+        Self::from_host_with_clock(window, transparent, false)
+    }
+
+    fn from_host_with_clock(
+        window: Arc<dyn SurfaceHost>,
+        transparent: bool,
+        _enable_wayland_clock: bool,
+    ) -> Result<Self> {
         let instance = wgpu::Instance::new(crate::instance_descriptor());
         let surface = instance
             .create_surface(SharedWindow(window.clone()))
@@ -173,19 +190,26 @@ impl WgpuWindow {
             ),
         })?;
         let size = window.surface_size();
+        #[cfg(all(target_os = "linux", feature = "window"))]
+        let wayland_clock = _enable_wayland_clock
+            && window
+                .display_handle()
+                .is_ok_and(|handle| matches!(handle.as_raw(), RawDisplayHandle::Wayland(_)));
+        // Preserve queued frames when render time varies across refreshes.
+        let present_mode = wgpu::PresentMode::Fifo;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             color_space: wgpu::SurfaceColorSpace::Srgb,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode,
             desired_maximum_frame_latency: 2,
             alpha_mode,
             view_formats: vec![],
         };
         renderer.configure_surface(&surface, &config);
-        tracing::info!(adapter=?renderer.adapter_info(),?format,"Plico wgpu window renderer initialized");
+        tracing::info!(adapter=?renderer.adapter_info(),?format,?present_mode,"Plico wgpu window renderer initialized");
         #[cfg(target_os = "macos")]
         let frame_pass = (renderer.adapter_info().backend == wgpu::Backend::Metal)
             .then(crate::macos_frame_pass::NativeFramePass::new)
@@ -205,6 +229,8 @@ impl WgpuWindow {
             window,
             configured_size: [config.width, config.height],
             config,
+            #[cfg(all(target_os = "linux", feature = "window"))]
+            wayland_clock,
             damage_enabled: damage_enabled(std::env::var("PLICO_WGPU_DAMAGE").ok().as_deref()),
             present_skipped: false,
             acquire_pending: false,
@@ -271,6 +297,11 @@ impl WgpuWindow {
     /// Adapter selected for this window; useful for native-backend diagnostics.
     pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
         self.renderer.adapter_info()
+    }
+
+    #[cfg(all(target_os = "linux", feature = "window"))]
+    pub fn uses_wayland_clock(&self) -> bool {
+        self.wayland_clock
     }
     /// Context shared with framework-owned external GPU surfaces.
     pub fn gpu_context(&self) -> plico_renderer::source::GpuContext {
@@ -412,11 +443,15 @@ impl WgpuWindow {
             self.abandon_pending_frame();
             self.renderer.invalidate_scene_damage();
         }
+        let profile_surface =
+            tracing::enabled!(target: "plico::perf::surface", tracing::Level::TRACE);
+        let prepare_started = profile_surface.then(std::time::Instant::now);
         let prepared = self.renderer.prepare_scene_frame(
             scene,
             [size.width, size.height],
             background.components,
         )?;
+        let prepare_scene_ms = prepare_started.map(|start| start.elapsed().as_secs_f64() * 1e3);
         // Planning the pending encoder advanced history, but its target pixels
         // have not been submitted. Only an identical scene may reuse it.
         if self.pending_frame.is_some()
@@ -572,6 +607,7 @@ impl WgpuWindow {
         if self.retained_size != Some([size.width, size.height]) {
             self.retained_size = None;
         }
+        let encode_started = profile_surface.then(std::time::Instant::now);
         let encoder = if initial {
             let encoder = self
                 .renderer
@@ -587,10 +623,13 @@ impl WgpuWindow {
             self.renderer
                 .encode_scene_plan(plan.expect("fresh frame has a plan"))?
         };
+        let encode_scene_ms = encode_started.map(|start| start.elapsed().as_secs_f64() * 1e3);
+        let acquire_started = profile_surface.then(std::time::Instant::now);
         #[cfg(any(target_os = "macos", all(test, not(target_arch = "wasm32"))))]
         let acquired = prefetched.unwrap_or_else(|| self.surface.get_current_texture());
         #[cfg(not(any(target_os = "macos", all(test, not(target_arch = "wasm32")))))]
         let acquired = self.surface.get_current_texture();
+        let acquire_ms = acquire_started.map(|start| start.elapsed().as_secs_f64() * 1e3);
         let frame = match acquired {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -647,8 +686,19 @@ impl WgpuWindow {
         }
         submitted?;
         self.retained_size = Some([size.width, size.height]);
+        let present_started = profile_surface.then(std::time::Instant::now);
         self.window.pre_present_notify();
         self.renderer.present(frame);
+        if let Some(start) = present_started {
+            tracing::trace!(
+                target: "plico::perf::surface",
+                prepare_scene_ms,
+                encode_scene_ms,
+                acquire_ms,
+                surface_present_ms = start.elapsed().as_secs_f64() * 1e3,
+                "wgpu surface timing"
+            );
+        }
         #[cfg(target_os = "macos")]
         if let Some(tx) = &mut self.transaction {
             tx.presented(

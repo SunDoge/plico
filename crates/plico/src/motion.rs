@@ -6,8 +6,10 @@ use std::time::Duration;
 
 mod content;
 mod placement;
+mod shared_element;
 pub use content::{ContentTransition, ContentTransitionFrame};
 pub use placement::PinnedRect;
+pub use shared_element::{SharedElementFrame, SharedElementGeometry, SharedElementMotion};
 
 /// How [`crate::UiContext::animate_to`] moves a scalar to its next target.
 /// A positive `duration` selects an easing curve; zero selects a spring.
@@ -333,6 +335,17 @@ impl ValueChannel {
             self.spring = animation.spring.physics();
         }
         (self.value as f32, self.moving || self.pending.is_some())
+    }
+
+    /// Rebase the channel when its layout origin moves, preserving velocity.
+    pub(crate) fn shift(&mut self, delta: f32) {
+        let delta = f64::from(delta);
+        self.value += delta;
+        self.target += delta;
+        self.from += delta;
+        if let Some(pending) = &mut self.pending {
+            pending.target += delta;
+        }
     }
 
     pub(crate) fn jump(&mut self, now: Duration, value: f32) -> f32 {

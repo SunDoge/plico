@@ -149,6 +149,7 @@ pub(super) struct PaintKey {
     checked_progress: f32,
     focus_progress: f32,
     raster_correction: Option<f32>,
+    motion_transform: plico_renderer::style::MotionTransform,
 }
 
 pub(super) type SvgResult = Result<Arc<plico_renderer::svg::SvgImage>, Arc<str>>;
@@ -238,12 +239,13 @@ pub struct Adapter {
     pub(super) presentation_dirty: bool,
     pub(super) presentation_roots: HashSet<NodeId>,
     pub(super) anchor_motion_dirty: bool,
+    pub(super) shared_matches: crate::shared_match::SharedMatches,
     pub(super) focused: Option<Entity>,
     pub(super) requested_focus: Option<Entity>,
     pub(super) blurred_focus: Option<Entity>,
     pub(super) requested_scroll: HashMap<Entity, f32>,
     pub(super) modal_stack: Vec<(Entity, Option<Entity>)>,
-    pub(super) preview_popups: Vec<Entity>,
+    pub(super) inactive_overlays: Vec<Entity>,
     pub(super) backdrop_pressed: Option<Entity>,
     pub(super) departing_popup: Option<Entity>,
     pub(super) popup_open_last: Option<Entity>,
@@ -324,12 +326,13 @@ impl Default for Adapter {
             presentation_dirty: false,
             presentation_roots: HashSet::new(),
             anchor_motion_dirty: false,
+            shared_matches: Default::default(),
             focused: None,
             requested_focus: None,
             blurred_focus: None,
             requested_scroll: HashMap::new(),
             modal_stack: Vec::new(),
-            preview_popups: Vec::new(),
+            inactive_overlays: Vec::new(),
             backdrop_pressed: None,
             departing_popup: None,
             popup_open_last: None,
@@ -896,6 +899,7 @@ impl Adapter {
         }
         self.align_sliders(engine);
         self.present_popovers(engine);
+        self.present_shared_matches(engine);
         self.update_shaders(engine, tcx);
         self.stats.changes |= changes
             & (plico::Changes::SEMANTICS

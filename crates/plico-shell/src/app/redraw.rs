@@ -2,8 +2,12 @@ use super::*;
 
 impl App {
     pub(super) fn redraw(&mut self) {
+        #[cfg(target_os = "linux")]
+        let started = Instant::now();
         let frame_measurement = crate::telemetry::span("frame", "redraw.cpu");
-        self.performance_hud.begin_frame(Instant::now());
+        if let Some(hud) = &mut self.inline_hud {
+            hud.begin_frame(Instant::now());
+        }
         #[cfg(feature = "profiling")]
         let frame_span = tracing::trace_span!(
             target: "plico::perf",
@@ -68,17 +72,17 @@ impl App {
         shell
             .accessibility
             .set_snapshot_with_offset(self.source.semantic_snapshot(), content_offset);
-        let (logical_width, logical_height) = shell.logical_size();
-        let scale = shell.scale_factor();
-        let mut hud_stats = self.frame_stats;
-        self.source.augment_frame_stats(&mut hud_stats);
-        self.performance_hud.paint(
-            &mut shell.scene,
-            &mut shell.tcx,
-            hud_stats,
-            [logical_width, logical_height],
-            scale,
-        );
+        if let Some(hud) = &self.inline_hud {
+            let (width, height) = shell.logical_size();
+            let scale = shell.scale_factor();
+            hud.paint(
+                &mut shell.scene,
+                &mut shell.tcx,
+                self.frame_stats,
+                [width, height],
+                scale,
+            );
+        }
         let base_color = shell.prepare_window_frame(base_color);
         let captured = if let Some(mut request) = self.source.take_screenshot_request() {
             let (width, height) = shell.size();
@@ -132,16 +136,21 @@ impl App {
         }
         let present_ms = ms(Instant::now() - t2);
         let present_skipped = shell.present_skipped();
-        self.skipped_present_deadline = present_skipped.then(|| {
-            let hz = shell
+        let refresh_interval = || {
+            let millihertz = shell
                 .window()
                 .current_monitor()
                 .and_then(|m| m.current_video_mode())
                 .and_then(|mode| mode.refresh_rate_millihertz())
-                .map(|rate| rate.get() as f64 / 1000.)
-                .unwrap_or(60.);
-            Instant::now() + std::time::Duration::from_secs_f64(1. / hz)
-        });
+                .map_or(60_000, |rate| rate.get());
+            std::time::Duration::from_secs_f64(1000. / f64::from(millihertz))
+        };
+        self.skipped_present_deadline =
+            present_skipped.then(|| Instant::now() + refresh_interval());
+        #[cfg(target_os = "linux")]
+        if shell.renderer.uses_wayland_clock() {
+            self.wayland_clock.advance(started, refresh_interval());
+        }
         #[cfg(feature = "profiling")]
         frame_span.record("node_count", node_count as u64);
         #[cfg(feature = "profiling")]
@@ -162,9 +171,12 @@ impl App {
         frame_span.record("scene_ms", scene_ms);
         #[cfg(feature = "profiling")]
         frame_span.record("present_ms", present_ms);
+        let budget = (presented && !present_skipped)
+            .then(|| shell.frame_budget())
+            .flatten();
         #[cfg(feature = "profiling")]
         tracing::trace!(
-            target: "plico::perf",
+            target: "plico::perf::frame",
             window_id = %self.window_key,
             node_count,
             build_ms = build_frame_ms,
@@ -178,6 +190,11 @@ impl App {
             scene_commands = source_sample.scene_commands,
             scene_reused = source_sample.scene_reused,
             present_ms,
+            prepare_ms = budget.map(|sample| sample.prepare_ms),
+            upload_ms = budget.map(|sample| sample.upload_ms),
+            encode_ms = budget.map(|sample| sample.encode_ms),
+            submit_ms = budget.map(|sample| sample.submit_ms),
+            gpu_ms = budget.and_then(|sample| sample.gpu_ms),
             presented = presented && !present_skipped,
             present_skipped,
             frame_accepted = presented,
@@ -185,10 +202,8 @@ impl App {
         );
         self.frame_stats
             .update(build_frame_ms, scene_ms, present_ms, node_count);
-        if presented
-            && !present_skipped
-            && let Some(budget) = shell.frame_budget()
-        {
+        (self.frame_stats.viewport_w, self.frame_stats.viewport_h) = shell.logical_size();
+        if let Some(budget) = budget {
             self.frame_stats.apply_budget(budget);
         }
         self.frame_stats.damage_coverage = if presented {
@@ -198,6 +213,13 @@ impl App {
         };
         self.source.augment_frame_stats(&mut self.frame_stats);
         self.source.push_frame_stats(&self.frame_stats);
+        if let Some(metrics) = &self.hud_metrics {
+            metrics.borrow_mut().observe(
+                Instant::now(),
+                self.frame_stats,
+                presented && !present_skipped,
+            );
+        }
         #[cfg(feature = "recording")]
         if presented {
             let (width, height) = shell.size();

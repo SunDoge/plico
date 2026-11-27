@@ -267,3 +267,12 @@ pub(crate) fn instance_descriptor() -> wgpu::InstanceDescriptor {
     descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
     descriptor.with_env()
 }
+
+#[cfg(any(
+    test,
+    all(
+        any(target_os = "linux", target_os = "windows", target_os = "macos"),
+        feature = "system-text"
+    )
+))]
+mod text_phase;

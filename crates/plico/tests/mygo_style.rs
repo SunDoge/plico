@@ -62,6 +62,29 @@ fn light_and_dark_control_faces_keep_mygo_interaction_colors() {
 }
 
 #[test]
+fn default_primary_button_text_has_contrast_in_all_active_states() {
+    fn luminance(color: u32) -> f32 {
+        let [r, g, b] = [16, 8, 0].map(|shift| {
+            let channel = ((color >> shift) & 255) as f32 / 255.;
+            if channel <= 0.04045 {
+                channel / 12.92
+            } else {
+                ((channel + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    for theme in [Theme::light(), Theme::dark()] {
+        let label = luminance(theme.on_accent);
+        for fill in [theme.accent, theme.accent_hover, theme.accent_pressed] {
+            let fill = luminance(fill);
+            assert!((fill.max(label) + 0.05) / (fill.min(label) + 0.05) >= 4.5);
+        }
+    }
+}
+
+#[test]
 fn ordinary_controls_use_reference_padding_without_shadows() {
     let mut engine = Engine::default();
     let buffer = TextBuffer::new();
@@ -149,7 +172,7 @@ fn bare_editor_does_not_repeat_its_composite_field_chrome() {
     assert_eq!(style.padding, 0.);
     assert_eq!(style.padding_x, None);
     assert_eq!(style.padding_y, None);
-    assert_eq!(style.min_height, Some(24.));
+    assert_eq!(style.min_height, Some(22.));
     assert_eq!(style.background, None);
     assert_eq!(style.border_width, 0.);
     assert!(!style.control_chrome);

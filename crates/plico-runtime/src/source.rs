@@ -333,6 +333,7 @@ impl<V: HostView> Source<V> {
         let reduced =
             self.requested_reduced_motion || self.engine.display_preferences().reduce_motion;
         self.adapter.motions.set_enabled(!reduced);
+        self.adapter.shared_matches.reduced = reduced;
         self.adapter.smooth_scroll_enabled = !reduced;
         self.adapter.scrollbars.reduced_motion = reduced;
         if reduced {
@@ -494,7 +495,8 @@ impl<V: HostView> Source<V> {
     ) -> Result<(), SourceError> {
         // Declarations such as Response::focused read the previous frame's
         // backend focus before this frame's traversal moves it.
-        self.engine.set_focused(self.adapter.focused());
+        self.engine
+            .set_focus_state(self.adapter.focused(), self.adapter.focus_visible);
         self.pending |= self.adapter.update_hover_regions(&self.engine);
         self.pending |= self.adapter.update_pointer_regions(&self.engine);
         let mut fonts_changed = false;
@@ -523,7 +525,9 @@ impl<V: HostView> Source<V> {
             // chooses between local replay and a full synchronized declaration.
             self.pending = true;
         }
-        let motion_dirty = self.adapter.motions.advance(now) || self.adapter.popup_motion_active;
+        let motion_dirty = self.adapter.motions.advance(now)
+            || self.adapter.popup_motion_active
+            || self.adapter.shared_matches.active;
         let scroll = self
             .adapter
             .advance_scroll(self.engine.time().now, &self.engine);
@@ -630,7 +634,7 @@ impl<V: HostView> Source<V> {
             &self.declared_dirty,
             self.declared_changes,
         );
-        let mut observed_size_changed = false;
+        let mut observed_geometry_changed = false;
         for entity in self.engine.layout_size_observers() {
             let Some(node_id) = self.adapter.backend_id(entity) else {
                 continue;
@@ -639,12 +643,19 @@ impl<V: HostView> Source<V> {
                 continue;
             };
             let rect = self.adapter.placed[index].rect;
-            observed_size_changed |= self.engine.set_layout_size(
+            observed_geometry_changed |= self.engine.set_layout_size(
                 entity,
                 [(rect[2] - rect[0]).max(0.), (rect[3] - rect[1]).max(0.)],
             );
         }
-        if observed_size_changed {
+        for entity in self.engine.presentation_observers() {
+            let bounds = self
+                .adapter
+                .backend_id(entity)
+                .and_then(|id| self.adapter.visual_bounds(id));
+            observed_geometry_changed |= self.engine.set_presentation_bounds(entity, bounds);
+        }
+        if observed_geometry_changed {
             self.pending = true;
             self.requests.insert(plico::Changes::VIEW);
         }
@@ -687,6 +698,7 @@ impl<V: HostView> Source<V> {
     ) {
         self.update_shader_scale(tcx, scale);
         if let Some((cached, cached_scale, _)) = &self.target_scene
+            && !self.scene_scratch.text_raster_needs_frame()
             && self
                 .target_scene
                 .as_ref()
@@ -703,12 +715,16 @@ impl<V: HostView> Source<V> {
             return;
         }
         self.adapter.stats.scene_builds += 1;
-        let layers = match (self.adapter.shaders.is_empty(), snapshot) {
+        let flights = &self.adapter.shared_matches.flights;
+        let layers = match (
+            self.adapter.shaders.is_empty() && flights.is_empty(),
+            snapshot,
+        ) {
             (true, Some(nodes)) => [nodes, &[]],
             _ => [self.adapter.placed.as_slice(), self.adapter.tips.layer()],
         };
         let base_color = self.base_color();
-        if snapshot.is_none() && !self.adapter.popup_motions.is_empty() {
+        if !flights.is_empty() || snapshot.is_none() && !self.adapter.popup_motions.is_empty() {
             let stats = self.adapter.stats;
             let can_patch = self.declarations_reused
                 && !self.adapter.scene_full_dirty
@@ -736,7 +752,9 @@ impl<V: HostView> Source<V> {
                 base_color,
                 scale,
                 &mut self.scene_parts,
+                &mut self.scene_scratch,
                 dirty.as_ref(),
+                flights,
             );
             self.adapter.stats.scene_parts_rebuilt = self.scene_parts.rebuilt;
             self.adapter.stats.scene_parts_reused = self.scene_parts.reused;
@@ -916,9 +934,11 @@ impl<V: HostView> FrameSource for Source<V> {
             .unwrap_or_else(|| rgb(self.engine.theme().surface))
     }
     fn has_anim(&self) -> bool {
-        self.transition.active()
+        self.scene_scratch.text_raster_needs_frame()
+            || self.transition.active()
             || self.adapter.motions.active()
             || self.adapter.popup_motion_active
+            || self.adapter.shared_matches.active
             || !self.adapter.scroll_motions.is_empty()
             || self.adapter.shader_active()
             || self

@@ -52,7 +52,7 @@ impl SettingsSection<'_, '_> {
                 };
             column(cx)
                 .padding_x(m.space(5))
-                .radius(m.radius as f32 + 4.)
+                .radius(f32::from(m.panel_radius()))
                 .background(Color::Panel)
                 .border(1., Color::Border)
                 .min_width(0.)

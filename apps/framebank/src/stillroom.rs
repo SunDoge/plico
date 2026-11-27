@@ -1,6 +1,7 @@
 use super::*;
 use plico::{
-    ContentTransition, Easing, GlassStyle, LiquidGlass, MasonryLayout, PinnedRect, SpringOptions,
+    Animation, ContentTransition, Easing, GlassStyle, LiquidGlass, MasonryLayout,
+    SharedElementFrame, SharedElementGeometry, SharedElementMotion, SpringOptions,
 };
 use std::time::Duration;
 
@@ -95,11 +96,14 @@ pub(super) struct PreviewState {
     flight_phase: f32,
     selection: ContentTransition<u64>,
     filter: ContentTransition<Filter>,
-    painted_photo: Option<(u64, Bounds)>,
-    outgoing_photo: Option<(u64, Bounds)>,
+    painted_photo: Option<(u64, SharedElementGeometry)>,
+    outgoing_photo: Option<(u64, SharedElementGeometry)>,
     matched_tile: Option<(u64, Bounds)>,
-    return_photo: Option<(u64, Bounds)>,
+    return_photo: Option<(u64, SharedElementGeometry)>,
     return_phase: f32,
+    photo_flight: SharedElementMotion,
+    opening_photo: bool,
+    return_frame: Option<SharedElementFrame>,
     painted_native_video: bool,
     return_native_video: bool,
     grid_scroll: f32,
@@ -113,6 +117,8 @@ impl PreviewState {
         self.zoom_phase = 0.;
         self.outgoing_photo = self.painted_photo.take();
         self.painted_native_video = false;
+        self.opening_photo = true;
+        self.return_frame = None;
     }
 
     pub(super) fn toggle(&mut self, anchor: [f32; 2]) {
@@ -128,6 +134,7 @@ impl PreviewState {
 
     pub(super) fn leave(&mut self) {
         self.return_photo = self.painted_photo.take();
+        self.return_frame = None;
         self.return_native_video = std::mem::take(&mut self.painted_native_video);
         self.return_phase = self.flight_phase.max(0.001);
         self.outgoing_photo = None;
@@ -176,29 +183,16 @@ impl Bounds {
         }
     }
 
-    fn photo_landing(self, tile: Self, poster: (u32, u32), progress: f32) -> (Self, Self) {
-        (
-            self.interpolate(tile, progress),
-            self.interpolate(tile.cover(poster), progress),
-        )
+    fn shared(self) -> SharedElementGeometry {
+        SharedElementGeometry::rect(self.rect())
     }
 
-    fn max_edge_delta(self, other: Self) -> f32 {
-        [
-            self.x - other.x,
-            self.y - other.y,
-            self.x + self.w - (other.x + other.w),
-            self.y + self.h - (other.y + other.h),
-        ]
-        .into_iter()
-        .map(f32::abs)
-        .fold(0., f32::max)
+    fn cropped(self, (width, height): (u32, u32)) -> SharedElementGeometry {
+        SharedElementGeometry::cover(self.rect(), [width as f32, height as f32])
     }
 
-    fn remaining_distance(self, tile: Self, dimensions: (u32, u32), progress: f32) -> f32 {
-        self.max_edge_delta(tile)
-            .max(self.max_edge_delta(tile.cover(dimensions)))
-            * (1. - progress)
+    fn from_rect([x, y, w, h]: [f32; 4]) -> Self {
+        Self { x, y, w, h }
     }
 
     fn photo_view(
@@ -244,9 +238,8 @@ impl Library {
         let chrome = ((screen - 0.48) / 0.52).clamp(0., 1.);
         let wall_opacity = 1. - (screen / 0.76).clamp(0., 1.);
         self.stillroom.flight_phase = flight;
-        if !open && flight == 0. {
+        if open {
             self.stillroom.return_photo = None;
-            self.related = false;
         }
         let returning = self.stillroom.return_photo.is_some();
         column(cx).width_percent(100.).height_percent(100.).clip(true).background(BASE) + |cx| {
@@ -276,11 +269,16 @@ impl Library {
                     let progress = self.stillroom.return_progress();
                     let remaining = 1. - progress;
                     let tile = self.stillroom.matched_tile.filter(|(tile_id, _)| *tile_id == id);
-                    if asset.kind == Kind::Photo
-                        && let Some((_, tile)) = tile
-                    {
-                        returning_photo(cx, &asset, from, tile, progress);
+                    if asset.kind == Kind::Photo {
+                        if let (Some((_, tile)), Some(frame)) =
+                            (tile, self.stillroom.return_frame)
+                        {
+                            returning_photo(cx, &asset, frame, tile, progress);
+                        } else {
+                            fading_photo(cx, &asset.poster, from, remaining);
+                        }
                     } else {
+                        let from = Bounds::from_rect(from.content);
                         let bounds = tile.map_or(from, |(_, to)| {
                             from.interpolate(to.cover(asset.dimensions), progress)
                         });
@@ -309,6 +307,17 @@ impl Library {
                     };
                 }
             };
+            if !open
+                && flight == 0.
+                && self.stillroom.return_frame.is_none_or(|frame| !frame.active)
+            {
+                self.related = false;
+                if self.stillroom.return_photo.take().is_some() {
+                    // The wall was declared while the returning copy still
+                    // owned the flight. Re-enable its input on the next frame.
+                    cx.request_animation_frame();
+                }
+            }
             if footer > 0. {
                 row(cx).width_percent(100.).height(footer).shrink(0.).align(Align::Center).padding_x(GUTTER)
                     .background(SURFACE) + |cx|
@@ -366,7 +375,7 @@ impl Library {
         let transition = self.stillroom.filter.sample(cx, self.filter, Duration::from_millis(150));
         let reveal = Easing::EaseOut.sample(transition.progress) as f32;
         let returning = self.stillroom.return_photo;
-        let return_progress = self.stillroom.return_progress();
+        self.stillroom.return_frame = None;
         let hidden = self.selected.filter(|id| {
             self.assets.iter().any(|asset| asset.id == *id && asset.kind == Kind::Photo)
         });
@@ -396,7 +405,7 @@ impl Library {
                 column(cx).grow(1.) + |_| {};
                 text!(cx, "{} assets", self.filtered().len()).font_size(12).color(MUTED);
             };
-            let results = self.filtered();
+            let results = Self::filter_assets(&self.assets, self.filter, &self.query);
             let wall = masonry(results, columns, card_w, gap);
             if wall.iter().all(Vec::is_empty) {
                 text(cx, "No matching assets").font_size(18).weight(650).color(MUTED);
@@ -416,21 +425,49 @@ impl Library {
                                 w: card_w,
                                 h: card_h,
                             };
-                            let mut hide = hidden == Some(asset.id);
-                            if let Some((id, from)) = returning
-                                && id == asset.id
-                                && y + card_h > 0.
-                                && y < visible_height
-                            {
-                                destination = Some((id, bounds));
-                                hide = asset.kind == Kind::Video
-                                    || from.remaining_distance(bounds, asset.poster_dimensions,
-                                        return_progress) >= LANDING_FADE_DISTANCE;
-                            }
-                            let response =
-                                stillroom_tile(cx, asset, card_w, card_h, hide);
+                            let visible =
+                                y + card_h + 4. > 0. && y < visible_height + 4.;
+                            let response = stillroom_tile(
+                                cx,
+                                asset,
+                                card_w,
+                                card_h,
+                                visible,
+                                |cx, measured| {
+                                    let bounds = measured.unwrap_or(bounds);
+                                    if let Some((id, from)) = returning
+                                        && id == asset.id
+                                        && bounds.y + bounds.h > 0.
+                                        && bounds.y < visible_height
+                                    {
+                                        destination = Some((id, bounds));
+                                        if asset.kind == Kind::Video {
+                                            return true;
+                                        }
+                                        let frame = self.stillroom.photo_flight.sample(
+                                            cx,
+                                            id,
+                                            from,
+                                            bounds.cropped(asset.poster_dimensions),
+                                            Animation {
+                                                spring: RETURN_FLIGHT,
+                                                ..Animation::SMOOTH
+                                            },
+                                        );
+                                        self.stillroom.return_frame = frame;
+                                        return frame.is_some_and(|frame| {
+                                            frame.remaining >= LANDING_FADE_DISTANCE
+                                        });
+                                    }
+                                    hidden == Some(asset.id)
+                                },
+                            );
                             if response.0 {
-                                open = Some((asset.id, bounds, offset));
+                                open = Some((
+                                    asset.id,
+                                    response.2.unwrap_or(bounds),
+                                    offset,
+                                ));
                             }
                             if response.1 {
                                 favorite = Some(asset.id);
@@ -471,14 +508,10 @@ impl Library {
         let selection = Easing::EaseOut.sample(transition.progress) as f32;
         column(cx).absolute(0., 0.).width_percent(100.).height_percent(100.).clip(true) + |cx| {
             if selection < 1.
-                && let Some((id, bounds)) = self.stillroom.outgoing_photo
+                && let Some((id, geometry)) = self.stillroom.outgoing_photo
                 && let Some(outgoing) = self.assets.iter().find(|asset| asset.id == id)
             {
-                column(cx).absolute(bounds.x, bounds.y).width(bounds.w).height(bounds.h).radius(RADIUS)
-                    .corner_smoothing(0.).clip(true).opacity(1. - selection * selection) + |cx|
-                {
-                    image(cx, &outgoing.poster).size(bounds.w, bounds.h);
-                };
+                fading_photo(cx, &outgoing.poster, geometry, 1. - selection * selection);
             }
             if asset.kind == Kind::Photo {
                 column(cx).key(asset.id).width_percent(100.).height_percent(100.).absolute(0., 0.) + |cx| {
@@ -538,24 +571,48 @@ impl Library {
         let fit = Bounds::photo_view(body, gallery, asset.dimensions, anchor, 0.);
         let target = Bounds::photo_view(body, gallery, asset.dimensions, anchor, phase);
         let matched = self.stillroom.matched_tile.filter(|(id, _)| *id == asset.id);
-        let view = matched.map_or(target, |(_, tile)| {
-            tile.cover(asset.dimensions).interpolate(target, screen.clamp(0., 1.04))
-        });
-        self.stillroom.painted_photo = Some((asset.id, view));
-        let [x, y] = view.center();
-        let [fit_x, fit_y] = fit.center();
-        let scale = view.w / fit.w;
+        let rest = fit.shared();
+        let destination = target.shared();
+        let geometry = if let Some((_, tile)) = matched.filter(|_| self.stillroom.opening_photo) {
+            let frame = self.stillroom.photo_flight.sample(
+                cx,
+                asset.id,
+                tile.cropped(asset.poster_dimensions),
+                destination,
+                Animation {
+                    spring: TILE_FLIGHT,
+                    ..Animation::SMOOTH
+                },
+            );
+            self.stillroom.opening_photo = frame.is_some_and(|frame| frame.active);
+            frame.map_or(destination, |frame| frame.geometry)
+        } else {
+            self.stillroom.opening_photo = false;
+            self.stillroom.photo_flight.place(asset.id, destination, cx.now());
+            destination
+        };
+        self.stillroom.painted_photo = Some((asset.id, geometry));
+        let Some((clip, content)) = geometry.pinned(rest) else {
+            return;
+        };
+        let [content_w, content_h] = content.layout_size();
         let fade = if matched.is_some() { selection } else { screen.clamp(0., 1.).min(selection) };
-        let radius = if matched.is_some() && screen < 1. { RADIUS / scale } else { RADIUS };
-        // Keep the photo and its layout slot at fit size. Only the retained
-        // presentation transform changes as the optical overlays stay in place.
-        column(cx).absolute(fit.x, fit.y).width(fit.w).height(fit.h).translate(x - fit_x, y - fit_y).scale(scale, scale)
-            .opacity(fade).radius(radius).corner_smoothing(0.).clip(true) + |cx|
-        {
+        let arriving = if self.stillroom.opening_photo { arriving_photo_alpha(screen) } else { 1. };
+        let radius = if self.stillroom.opening_photo { RADIUS / clip.scale() } else { RADIUS };
+        column(cx).pinned_rect(clip).opacity(fade).radius(radius).corner_smoothing(0.).clip(true) + |cx| {
             let toggle = button_base(cx, "Toggle immersive zoom").width_percent(100.).height_percent(100.)
                 .align(Align::Center).justify(Justify::Center) + |cx|
             {
-                image(cx, &asset.poster).size(fit.w, fit.h);
+                column(cx).pinned_rect(content) + |cx| {
+                    if arriving < 1. {
+                        image(cx, &asset.wall_preview).size(content_w, content_h);
+                    }
+                    if arriving > 0. {
+                        column(cx).absolute(0., 0.).width(content_w).height(content_h).opacity(arriving) + |cx| {
+                            image(cx, &asset.poster).size(content_w, content_h);
+                        };
+                    }
+                };
                 cx.pointer_fraction()
             };
             if toggle.clicked() {
@@ -623,7 +680,7 @@ impl Library {
         let h = h as f32 * scale;
         let y = 80. + (available - h) / 2.;
         let x = (gallery - w) / 2.;
-        self.stillroom.painted_photo = Some((asset.id, Bounds { x, y, w, h }));
+        self.stillroom.painted_photo = Some((asset.id, SharedElementGeometry::rect([x, y, w, h])));
         self.stillroom.painted_native_video =
             self.video_inline && self.playback.as_ref().is_some_and(|p| p.error.is_none());
         column(cx).absolute(x, y).width(w).height(h).background(BASE).opacity(0.55 + 0.45 * reveal).radius(RADIUS)
@@ -873,22 +930,42 @@ fn arriving_photo_alpha(progress: f32) -> f32 {
 
 #[component]
 #[rustfmt::skip]
-fn returning_photo(cx: &mut UiContext, asset: &Asset, from: Bounds, tile: Bounds, progress: f32) {
-    let distance = from.remaining_distance(tile, asset.poster_dimensions, progress);
-    let blend = ((distance - LANDING_REST_DISTANCE)
+fn fading_photo(
+    cx: &mut UiContext,
+    poster: &plico::ImageAsset,
+    geometry: SharedElementGeometry,
+    opacity: f32,
+) {
+    let Some((clip, content)) = geometry.pinned(geometry) else {
+        return;
+    };
+    let [w, h] = content.layout_size();
+    column(cx).pinned_rect(clip).radius(RADIUS).corner_smoothing(0.).clip(true).opacity(opacity) + |cx| {
+        column(cx).pinned_rect(content) + |cx| {
+            image(cx, poster).size(w, h);
+        };
+    };
+}
+
+#[component]
+#[rustfmt::skip]
+fn returning_photo(
+    cx: &mut UiContext,
+    asset: &Asset,
+    frame: SharedElementFrame,
+    tile: Bounds,
+    progress: f32,
+) {
+    let blend = ((frame.remaining - LANDING_REST_DISTANCE)
         / (LANDING_FADE_DISTANCE - LANDING_REST_DISTANCE)).clamp(0., 1.);
     let opacity = blend * blend * (3. - 2. * blend);
     if opacity == 0. {
         return;
     }
-    let (clip, poster) = from.photo_landing(tile, asset.poster_dimensions, progress);
     let arriving = arriving_photo_alpha(progress);
-    let Some(clip_pose) = PinnedRect::new(tile.rect(), clip.rect()) else {
-        return;
-    };
-    let rest = tile.cover(asset.poster_dimensions);
-    let Some(image_pose) = PinnedRect::new([rest.x - tile.x, rest.y - tile.y, rest.w, rest.h],
-        clip_pose.to_local(poster.rect())) else {
+    let Some((clip_pose, image_pose)) =
+        frame.geometry.pinned(tile.cropped(asset.poster_dimensions))
+    else {
         return;
     };
     let [image_w, image_h] = image_pose.layout_size();
@@ -915,80 +992,136 @@ fn stillroom_tile(
     asset: &Asset,
     width: f32,
     height: f32,
-    hidden: bool,
-) -> (bool, bool) {
+    visible: bool,
+    hide: impl FnOnce(&mut UiContext<'_>, Option<Bounds>) -> bool,
+) -> (bool, bool, Option<Bounds>) {
     let mut opened = false;
     let mut favorited = false;
-    column(cx).key(asset.id).width(width).height(height).shrink(0.).clip(true).radius(RADIUS).background(SURFACE)
-        .opacity(if hidden { 0. } else { 1. }) + |cx|
-    {
-        let hovered = !hidden && cx.hovered_within();
-        let bounds = Bounds {
-            x: 0.,
-            y: 0.,
-            w: width,
-            h: height,
-        }.cover(asset.poster_dimensions);
-        let tile = button_base(cx, asset.title.as_str()).width_percent(100.).height_percent(100.)
-            .align(Align::Center).justify(Justify::Center);
-        opened = (tile + |cx| {
-            column(cx).absolute(bounds.x, bounds.y).width(bounds.w).height(bounds.h) + |cx| {
-                image(cx, &asset.wall_preview).size(bounds.w, bounds.h);
-            };
-        }).clicked();
-        let reveal = cx.animate("tile-caption", f32::from(hovered), Duration::from_millis(130));
-        if reveal > 0.01 {
-            row(cx).absolute(7., height - 42. + (1. - reveal) * 7.).width(width - 14.).height(35.).opacity(reveal)
-                .padding_x(8).gap(6).align(Align::Center).radius(9.).background(BASE).background_alpha(0.82)
-                .border(1., LINE) + |cx|
-            {
-                text(cx, asset.title.as_str()).width(0.).grow(1.).font_size(12).weight(650).color(TEXT)
-                    .ellipsis(true);
-                if icon_button(cx, if asset.favorite { "Remove favorite" } else { "Add favorite" }, &STAR,
-                    false).clicked()
+    let mut measured = None;
+    column(cx).key(asset.id).width(width).height(height).shrink(0.) + |cx| {
+        measured = visible.then(|| cx.presentation_bounds()).flatten().map(
+            |[left, top, right, bottom]| {
+                Bounds::from_rect([left, top - HEADER, right - left, bottom - top])
+            },
+        );
+        let hidden = hide(cx, measured);
+        column(cx).width_percent(100.).height_percent(100.).clip(true).radius(RADIUS).background(SURFACE)
+            .opacity(if hidden { 0. } else { 1. }) + |cx|
+        {
+            let hovered = !hidden && cx.hovered_within();
+            let bounds = Bounds {
+                x: 0.,
+                y: 0.,
+                w: width,
+                h: height,
+            }.cover(asset.poster_dimensions);
+            let tile = button_base(cx, asset.title.as_str()).width_percent(100.).height_percent(100.)
+                .align(Align::Center).justify(Justify::Center);
+            opened = (tile + |cx| {
+                column(cx).absolute(bounds.x, bounds.y).width(bounds.w).height(bounds.h) + |cx| {
+                    image(cx, &asset.wall_preview).size(bounds.w, bounds.h);
+                };
+            }).clicked();
+            let reveal = cx.animate("tile-caption", f32::from(hovered), Duration::from_millis(130));
+            if reveal > 0.01 {
+                row(cx).absolute(7., height - 42. + (1. - reveal) * 7.).width(width - 14.).height(35.)
+                    .opacity(reveal).padding_x(8).gap(6).align(Align::Center).radius(9.).background(BASE)
+                    .background_alpha(0.82).border(1., LINE) + |cx|
                 {
-                    favorited = true;
-                }
-            };
-        }
-        if asset.kind == Kind::Video {
-            row(cx).absolute(width - 64., 9.).width(55.).height(26.).align(Align::Center).justify(Justify::Center)
-                .gap(4).radius(8.).background(BASE).background_alpha(0.89) + |cx|
-            {
-                svg(cx, &PLAY).size(12., 12.).color(TEXT);
-                text(cx, time_label(asset.duration)).font_size(11).color(TEXT);
-            };
-        }
+                    text(cx, asset.title.as_str()).width(0.).grow(1.).font_size(12).weight(650).color(TEXT)
+                        .ellipsis(true);
+                    if icon_button(cx, if asset.favorite { "Remove favorite" } else { "Add favorite" },
+                        &STAR, false).clicked()
+                    {
+                        favorited = true;
+                    }
+                };
+            }
+            if asset.kind == Kind::Video {
+                row(cx).absolute(width - 64., 9.).width(55.).height(26.).align(Align::Center)
+                    .justify(Justify::Center).gap(4).radius(8.).background(BASE).background_alpha(0.89) + |cx|
+                {
+                    svg(cx, &PLAY).size(12., 12.).color(TEXT);
+                    text(cx, time_label(asset.duration)).font_size(11).color(TEXT);
+                };
+            }
+        };
     };
-    (opened, favorited)
+    (opened, favorited, measured)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use plico_desktop::{HostView, testing::Tester};
+    use plico_dev::App;
+
+    struct View(Library);
+
+    impl HostView for View {
+        fn show(&mut self, cx: &mut UiContext) {
+            self.0.show(cx);
+        }
+
+        fn theme(&self) -> Theme {
+            self.0.theme()
+        }
+    }
+
+    fn near(actual: [f32; 4], expected: [f32; 4]) {
+        assert!(
+            actual
+                .into_iter()
+                .zip(expected)
+                .all(|(a, b)| (a - b).abs() < 1.),
+            "actual: {actual:?}, expected: {expected:?}"
+        );
+    }
 
     #[test]
-    fn returning_portrait_ends_at_the_masonry_crop() {
-        let detail = Bounds {
-            x: 100.,
-            y: 50.,
-            w: 400.,
-            h: 800.,
-        };
-        let tile = Bounds {
-            x: 600.,
-            y: 450.,
-            w: 300.,
-            h: 435.,
-        };
-        let poster = (1000, 2000);
+    fn opening_returning_and_reversing_a_photo_keeps_the_presented_crop() {
+        let mut assets = crate::media::samples().unwrap();
+        assets.truncate(1);
+        let mut driver = Tester::new(
+            View(Library::new(assets, false, Design::Stillroom)),
+            1280,
+            850,
+        )
+        .unwrap();
+        let tile = driver.find("Quiet elevations").unwrap().bounds;
+        driver.click("Quiet elevations").unwrap();
+        near(driver.find("Toggle immersive zoom").unwrap().bounds, tile);
 
-        assert_eq!(detail.photo_landing(tile, poster, 0.), (detail, detail));
-        let (clip, image) = detail.photo_landing(tile, poster, 0.5);
-        assert!(clip.h < image.h);
-        assert_eq!(clip.center(), image.center());
-        let (clip, image) = detail.photo_landing(tile, poster, 1.);
-        assert_eq!(clip, tile);
-        assert_eq!(image, tile.cover(poster));
+        driver.advance(Duration::from_millis(85)).unwrap();
+        let opened = driver.find("Toggle immersive zoom").unwrap().bounds;
+        assert_ne!(opened, tile);
+        driver.update_view(|view| view.0.back()).unwrap();
+        let first_return = driver.view().0.stillroom.return_frame.unwrap();
+        let [x, y, w, h] = first_return.geometry.clip;
+        near([x, y + HEADER, x + w, y + HEADER + h], opened);
+
+        driver.advance(Duration::from_millis(60)).unwrap();
+        let [x, y, w, h] = driver
+            .view()
+            .0
+            .stillroom
+            .return_frame
+            .unwrap()
+            .geometry
+            .clip;
+        driver.update_view(|view| view.0.select(1)).unwrap();
+        near(
+            driver.find("Toggle immersive zoom").unwrap().bounds,
+            [x, y + HEADER, x + w, y + HEADER + h],
+        );
+
+        driver.settle().unwrap();
+        driver.update_view(|view| view.0.back()).unwrap();
+        driver.settle().unwrap();
+        assert!(driver.view().0.stillroom.return_photo.is_none());
+        near(driver.find("Quiet elevations").unwrap().bounds, tile);
+        let settled = driver.layout_snapshot();
+        driver.advance(Duration::from_millis(32)).unwrap();
+        assert!(driver.layout_snapshot() == settled);
     }
 }

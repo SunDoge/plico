@@ -142,6 +142,7 @@
 
 [wgpu 窗口 CPU 采样](wgpu-profiling.md)：阶段 span、退出导出、真实设置页采样及解释边界。
 
+- [Plico 默认桌面风格](default-desktop-style.md) — 默认与紧凑密度、基础控件尺寸和 Gallery 对照页。
 - [Settings composition](settings-composition.md): theme-scaled settings builders and the Workspace reference.
 
 - [Continuous corners](corner-smoothing.md): shared eased fill/border/clip geometry and renderer cost boundaries.

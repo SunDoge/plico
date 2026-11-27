@@ -232,3 +232,20 @@ fn chinese_status_filter_and_select_visible_use_the_same_rows() {
             .is_some()
     );
 }
+
+#[test]
+fn virtual_list_demo_animates_the_rows_after_a_pointer_click() {
+    let mut d = driver(Page::Lists);
+    let row_y = |d: &Tester<Gallery>, label: &str| d.find(label).unwrap().bounds[1];
+    let second = row_y(&d, "Record 00002");
+    let third = row_y(&d, "Record 00003");
+
+    d.click("Swap rows 2 and 3").unwrap();
+    assert!((row_y(&d, "Record 00002") - second).abs() < 0.6);
+    d.advance(std::time::Duration::from_millis(80)).unwrap();
+    let moving = row_y(&d, "Record 00002");
+    assert!(second < moving && moving < third);
+    d.settle().unwrap();
+    assert!((row_y(&d, "Record 00002") - third).abs() < 0.6);
+    assert!((row_y(&d, "Record 00003") - second).abs() < 0.6);
+}

@@ -38,7 +38,7 @@ fn popup_entry<'u, 'e, 't>(
         .width_percent(100.)
         .min_height(m.control_height as f32)
         .padding_x(m.spacing as f32 * if selected.is_some() { 2.5 } else { 2. })
-        .padding_y(m.spacing as f32 * 1.5)
+        .padding_y(m.control_padding_y())
         .gap(m.space(2))
         .align(Align::Center)
         .radius(m.radius as f32)

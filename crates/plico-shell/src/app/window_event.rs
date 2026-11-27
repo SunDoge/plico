@@ -24,7 +24,13 @@ impl App {
                 self.state = None;
                 event_loop.exit();
             }
-            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::RedrawRequested => {
+                #[cfg(target_os = "linux")]
+                if self.wayland_redraw_is_early(Instant::now()) {
+                    return false;
+                }
+                self.redraw();
+            }
             WindowEvent::SurfaceResized(PhysicalSize { width, height }) => {
                 let Some(shell) = self.state.as_mut() else {
                     return false;
@@ -310,8 +316,54 @@ impl App {
         geometry_changed
     }
 
-    pub(super) fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
+    #[cfg(target_os = "linux")]
+    fn wayland_redraw_is_early(&mut self, now: Instant) -> bool {
+        if self
+            .state
+            .as_ref()
+            .is_none_or(|shell| !shell.renderer.uses_wayland_clock())
+        {
+            return false;
+        }
+        self.wayland_clock.observe_redraw(now);
+        self.source.has_anim()
+            && self
+                .wayland_clock
+                .deadline()
+                .is_some_and(|deadline| deadline > now)
+    }
+
+    pub(super) fn service_frame_wake(&mut self, now: Instant) -> FrameWake {
+        let wake = self.next_frame_wake(now);
+        if wake != FrameWake::Redraw {
+            return wake;
+        }
+        if let Some(shell) = &self.state {
+            shell.window().request_redraw();
+        }
+        #[cfg(target_os = "linux")]
+        if self.source.has_anim() && self.wayland_clock.can_draw(now) {
+            // Keep requesting compositor events. They stop when the surface
+            // is no longer drawn, even on hosts without an Occluded event.
+            self.redraw();
+            let now = Instant::now();
+            return match self.next_frame_wake(now) {
+                FrameWake::Redraw => FrameWake::Deadline(now),
+                wake => wake,
+            };
+        }
+        FrameWake::Idle
+    }
+
+    fn next_frame_wake(&mut self, now: Instant) -> FrameWake {
         let maintenance = self.state.as_mut().and_then(|shell| shell.maintain(now));
+        let visible = self.state.is_some()
+            && self.lifecycle.presence() == WindowPresence::Visible
+            && !self.window_metrics.occluded;
+        #[cfg(target_os = "linux")]
+        if !visible {
+            self.wayland_clock.reset();
+        }
         let source_animation = self.source.has_anim();
         let fallback = self.state.as_ref().and_then(Shell::presentation_deadline);
         let waits_for_tick = self
@@ -323,12 +375,13 @@ impl App {
             .flatten();
         let (has_animation, deadline) =
             presentation_work(source_animation, source_deadline, fallback);
+        let animation_not_before = self.skipped_present_deadline;
+        #[cfg(target_os = "linux")]
+        let animation_not_before = animation_not_before.max(self.wayland_clock.deadline());
         let mut wake = scheduled_frame_wake(
-            self.state.is_some()
-                && self.lifecycle.presence() == WindowPresence::Visible
-                && !self.window_metrics.occluded,
+            visible,
             has_animation,
-            self.skipped_present_deadline,
+            animation_not_before,
             deadline,
             &mut self.scheduled_frame_deadline,
             now,
@@ -337,9 +390,7 @@ impl App {
                 .is_some_and(Shell::surface_acquire_pending),
         );
         if let Some(shell) = &self.state {
-            let waiting = waits_for_tick
-                && self.lifecycle.presence() == WindowPresence::Visible
-                && !self.window_metrics.occluded;
+            let waiting = waits_for_tick && visible;
             let ready =
                 shell.animation_frame_ready(waiting || has_animation && wake == FrameWake::Redraw);
             wake = display_wait_wake(wake, has_animation, waiting, ready);

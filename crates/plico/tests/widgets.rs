@@ -161,7 +161,7 @@ fn legacy_theme_deserializes_and_metrics_are_shared_by_built_in_widgets() {
         style.horizontal_padding(),
         theme.metrics.spacing as f32 * 3.5
     );
-    assert_eq!(style.vertical_padding(), theme.metrics.spacing as f32 * 1.5);
+    assert_eq!(style.vertical_padding(), theme.metrics.spacing as f32);
     assert_eq!(style.min_height, Some(theme.metrics.control_height as f32));
     assert_eq!(style.background, Some(Color::Control));
 }

@@ -181,31 +181,12 @@ const TILES: [&str; 12] = [
 
 #[component]
 fn glass_grid(cx: &mut UiContext, dark: bool) {
-    for y in 0..7 {
-        for x in 0..13 {
-            let dist = ((x as f32 - 6.) / 6.5).hypot((y as f32 - 3.) / 3.5);
-            let alpha = ((1. - dist) / 0.45).clamp(0., 1.) * 0.1;
-            if alpha > 0. {
-                let ink = Color::Literal(if dark { 0xffffff } else { 0x000000 });
-                cx.keyed((y * 13 + x) as u64, |cx| {
-                    column(cx)
-                        .absolute(x as f32 * 40., y as f32 * 40.)
-                        .width(40.)
-                        .height(1.)
-                        .background(ink)
-                        .background_alpha(alpha)
-                        .children(|_| {});
-                    column(cx)
-                        .absolute(x as f32 * 40., y as f32 * 40.)
-                        .width(1.)
-                        .height(40.)
-                        .background(ink)
-                        .background_alpha(alpha)
-                        .children(|_| {});
-                });
-            }
-        }
-    }
+    const GRID: SvgAsset = plico::svg_asset!("../assets/showcase-grid.svg");
+    column(cx).absolute(0., 0.).children(|cx| {
+        svg(cx, &GRID)
+            .size(520., 280.)
+            .color(Color::Literal(if dark { 0xffffff } else { 0x000000 }));
+    });
 }
 
 fn play_stage(cx: &mut UiContext, playing: &mut bool, dark: bool) {
@@ -347,7 +328,8 @@ fn distance_readout(cx: &mut UiContext, tab: usize) {
                                 text(cx, std::str::from_utf8(&glyph).unwrap())
                                     .font_size(60)
                                     .weight(600)
-                                    .absolute(0., offset)
+                                    .absolute(0., 0.)
+                                    .translate_from_rest(0., offset)
                                     .opacity((shown_width / width).min(1.));
                             });
                         }

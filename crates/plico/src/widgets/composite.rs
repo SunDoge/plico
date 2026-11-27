@@ -34,7 +34,7 @@ pub fn panel<'u, 'e>(
         layout: column(cx)
             .padding(m.space(4))
             .gap(m.space(3))
-            .radius(m.radius as f32 + 4.)
+            .radius(f32::from(m.panel_radius()))
             .background(Color::Panel)
             .border(1., Color::Border),
         title: title.into(),
@@ -160,7 +160,7 @@ pub fn nav_entry_with_appearance<'u, 'e, 't>(
         .engine
         .nodes
         .get(owner)
-        .is_some_and(|node| cx.engine.focus_within(node.identity));
+        .is_some_and(|node| cx.engine.visible_focus_within(node.identity));
     let control = button_base(cx, label)
         .width_percent(100.)
         .padding_x(m.space(2))
@@ -242,15 +242,17 @@ pub fn nav_menu<Route: crate::Route + Copy + Eq>(
     cx: &mut UiContext,
     router: &mut crate::Router<Route>,
 ) {
-    let routes = router.targets();
-    for &route in routes {
+    let current = router.current();
+    let mut next = current;
+    for &route in router.targets() {
         cx.keyed(route.id(), |cx| {
             let label = cx.tr(route.id(), route.label());
-            if nav_item(cx, &label, router.show(route), route.icon()).clicked() {
-                router.go(route);
+            if nav_item(cx, &label, current == route, route.icon()).clicked() {
+                next = route;
             }
         });
     }
+    router.go(next);
 }
 
 /// A bordered box of collapsible sections (MyGO `Accordion`): each item opens
@@ -421,6 +423,7 @@ pub fn collapsible<R>(
     if accordion {
         cx.accordion_index += 1;
     }
+    let reduced_motion = cx.display_preferences().reduce_motion;
     let progress = cx.animate(
         "collapsible.open",
         f32::from(*open),
@@ -467,22 +470,23 @@ pub fn collapsible<R>(
                 .response;
             if response.clicked() {
                 *open = !*open;
+                cx.request_rebuild();
             }
-            if *open || progress > 0. {
+            if *open || (!reduced_motion && progress > 0.) {
                 let measured_height = measured.get().height;
                 // Plico receives intrinsic geometry after the host layout pass.
                 // Mount one transparent, unconstrained measurement declaration
                 // before starting from zero; Source settles that feedback before
                 // presenting. Later frames can keep the inner column in flow and
                 // clip it to the animated outer height.
-                let measuring = *open && measured_height == 0.;
+                let measuring = !reduced_motion && *open && measured_height == 0.;
                 let panel = column(cx)
                     .position(crate::Position::Relative)
                     .width_percent(100.)
                     .shrink(0.)
                     .clip(true)
                     .opacity(if measuring { 0. } else { 1. });
-                let panel = if measuring {
+                let panel = if reduced_motion || measuring {
                     panel
                 } else {
                     panel.height(measured_height * progress)
@@ -501,7 +505,8 @@ pub fn collapsible<R>(
                                 .padding_right(if accordion { m.space(3) as f32 } else { 0. })
                                 .gap(m.space(2))
                                 .children(|cx| {
-                                    if let Some([_, height]) = cx.layout_size()
+                                    if !reduced_motion
+                                        && let Some([_, height]) = cx.layout_size()
                                         && height.is_finite()
                                         && height >= 0.
                                     {

@@ -6,11 +6,10 @@ pub(super) fn contains(engine: &Engine, root: Entity, target: Entity) -> bool {
 }
 impl Adapter {
     pub(super) fn is_popup_panel(&self, engine: &Engine, entity: Entity) -> bool {
-        self.modal_stack.iter().any(|(root, _)| {
-            engine
-                .node(*root)
-                .is_some_and(|n| n.style.popup_anchor.is_some() && n.children.contains(&entity))
-        })
+        engine
+            .parent(entity)
+            .and_then(|parent| engine.node(parent))
+            .is_some_and(|node| node.kind == Kind::Overlay && node.style.popup_anchor.is_some())
     }
     pub(super) fn accessible_modal(&self, engine: &Engine) -> Option<Entity> {
         self.modal_stack.iter().rev().find_map(|(root, _)| {
@@ -26,7 +25,10 @@ impl Adapter {
     }
 
     fn modal_root(&self) -> Option<Entity> {
-        self.modal_stack.last().map(|(entity, _)| *entity)
+        self.modal_stack
+            .iter()
+            .rev()
+            .find_map(|&(root, _)| (self.departing_popup != Some(root)).then_some(root))
     }
     pub(super) fn modal_dialog(&self, engine: &Engine) -> Option<Entity> {
         engine
@@ -38,36 +40,21 @@ impl Adapter {
     }
     pub(super) fn modal_allows(&self, engine: &Engine, entity: Entity) -> bool {
         if self
-            .preview_popups
+            .inactive_overlays
             .iter()
-            .any(|&root| contains(engine, root, entity))
+            .copied()
+            .chain(self.departing_popup)
+            .any(|root| contains(engine, root, entity))
         {
             return false;
         }
-        let active = self.modal_stack.iter().rev().find_map(|(root, _)| {
-            let n = engine.node(*root)?;
-            (!(n.style.popup_anchor.is_some()
-                && (!n.style.modal_open || self.departing_popup == Some(*root))))
-            .then_some((*root, n))
-        });
-        if self.modal_stack.iter().any(|(root, _)| {
-            engine.node(*root).is_some_and(|n| {
-                n.style.popup_anchor.is_some()
-                    && (!n.style.modal_open || self.departing_popup == Some(*root))
-            }) && contains(engine, *root, entity)
-        }) {
-            return false;
-        }
-        active.is_none_or(|(_, node)| {
-            node.style.modal_open
-                && node.children.iter().any(|child| {
-                    engine.node(*child).is_some_and(|n| n.kind == Kind::Dialog)
-                        && contains(engine, *child, entity)
-                })
+        self.modal_root().is_none_or(|_| {
+            self.modal_dialog(engine)
+                .is_some_and(|dialog| contains(engine, dialog, entity))
         })
     }
     pub(super) fn sync_modal_focus(&mut self, engine: &Engine) {
-        self.preview_popups.clear();
+        self.inactive_overlays.clear();
         let roots: Vec<_> = engine
             .node(engine.root())
             .unwrap()
@@ -81,10 +68,12 @@ impl Adapter {
                 else {
                     return false;
                 };
-                if node.style.popup_preview {
-                    self.preview_popups.push(entity);
+                if node.style.modal_open && !node.style.popup_preview {
+                    true
+                } else {
+                    self.inactive_overlays.push(entity);
+                    false
                 }
-                !node.style.popup_preview
             })
             .collect();
         let shared = self
@@ -123,82 +112,62 @@ impl Adapter {
             self.hovered = None;
             self.scrollbar_drag = None;
         }
-        if self
-            .modal_root()
-            .and_then(|r| engine.node(r))
-            .is_some_and(|n| n.style.popup_anchor.is_some() && !n.style.modal_open)
+        // A frozen exit can still paint after its input scope has ended.
+        // MyGO ui/scope.go (MIT), revisions 16efab09 and e2674dac.
+        self.departing_popup = None;
+        if let Some(dialog) = self.modal_dialog(engine)
+            && self.focused.is_none_or(|e| !contains(engine, dialog, e))
         {
-            if self.focused.is_none_or(|e| {
-                self.modal_dialog(engine)
-                    .is_some_and(|d| contains(engine, d, e))
-            }) {
-                self.focused = self.modal_stack.last().and_then(|(_, restore)| *restore);
+            fn first(engine: &Engine, root: Entity, input_only: bool) -> Option<Entity> {
+                let n = engine.node(root)?;
+                if !n.style.disabled
+                    && (if input_only {
+                        n.kind == Kind::TextInput
+                    } else {
+                        n.kind != Kind::Dialog
+                            && n.kind.capabilities().contains(Capabilities::FOCUS)
+                    })
+                {
+                    return Some(root);
+                }
+                n.children
+                    .iter()
+                    .find_map(|child| first(engine, *child, input_only))
             }
-            self.departing_popup = self.modal_root();
-            return;
-        }
-        // A popup can reopen while its previous closing pose is still mounted.
-        if self
-            .departing_popup
-            .is_some_and(|root| engine.node(root).is_some_and(|node| node.style.modal_open))
-        {
-            self.departing_popup = None;
-        }
-        if let Some(dialog) = self.modal_dialog(engine) {
-            if self.focused.is_none_or(|e| !contains(engine, dialog, e)) {
-                fn first(engine: &Engine, root: Entity, input_only: bool) -> Option<Entity> {
-                    let n = engine.node(root)?;
-                    if !n.style.disabled
-                        && (if input_only {
-                            n.kind == Kind::TextInput
-                        } else {
-                            interactive(n.kind) && n.kind != Kind::Overlay
-                        })
-                    {
-                        return Some(root);
-                    }
-                    n.children
-                        .iter()
-                        .find_map(|child| first(engine, *child, input_only))
+            fn selected(engine: &Engine, e: Entity) -> Option<Entity> {
+                let n = engine.node(e)?;
+                if n.style.role == Some(plico::WidgetRole::Option)
+                    && n.style.selected == Some(true)
+                    && !n.style.disabled
+                {
+                    return Some(e);
                 }
-                fn selected(engine: &Engine, e: Entity) -> Option<Entity> {
-                    let n = engine.node(e)?;
-                    if n.style.role == Some(plico::WidgetRole::Option)
-                        && n.style.selected == Some(true)
-                        && !n.style.disabled
-                    {
-                        return Some(e);
-                    }
-                    n.children.iter().find_map(|child| selected(engine, *child))
-                }
-                fn last_item(engine: &Engine, e: Entity) -> Option<Entity> {
-                    let n = engine.node(e)?;
-                    n.children
-                        .iter()
-                        .rev()
-                        .find_map(|child| last_item(engine, *child))
-                        .or_else(|| {
-                            (!n.style.disabled && n.style.role == Some(plico::WidgetRole::MenuItem))
-                                .then_some(e)
-                        })
-                }
-                let open_last = self
-                    .modal_stack
-                    .last()
-                    .and_then(|(_, restore)| *restore)
-                    .is_some_and(|restore| self.popup_open_last == Some(restore));
-                self.popup_open_last = None;
-                self.focused = open_last
-                    .then(|| last_item(engine, dialog))
-                    .flatten()
-                    .or_else(|| selected(engine, dialog))
-                    .or_else(|| first(engine, dialog, true))
-                    .or_else(|| first(engine, dialog, false))
-                    .or(Some(dialog));
-                self.reveal_focus = true;
+                n.children.iter().find_map(|child| selected(engine, *child))
             }
-        } else if self.focused.is_none() && !self.modal_stack.is_empty() {
-            self.focused = self.modal_root();
+            fn last_item(engine: &Engine, e: Entity) -> Option<Entity> {
+                let n = engine.node(e)?;
+                n.children
+                    .iter()
+                    .rev()
+                    .find_map(|child| last_item(engine, *child))
+                    .or_else(|| {
+                        (!n.style.disabled && n.style.role == Some(plico::WidgetRole::MenuItem))
+                            .then_some(e)
+                    })
+            }
+            let open_last = self
+                .modal_stack
+                .last()
+                .and_then(|(_, restore)| *restore)
+                .is_some_and(|restore| self.popup_open_last == Some(restore));
+            self.popup_open_last = None;
+            self.focused = open_last
+                .then(|| last_item(engine, dialog))
+                .flatten()
+                .or_else(|| selected(engine, dialog))
+                .or_else(|| first(engine, dialog, true))
+                .or_else(|| first(engine, dialog, false));
+            self.reveal_focus = true;
         }
     }
     pub(super) fn modal_event(
@@ -208,9 +177,6 @@ impl Adapter {
     ) -> Option<EventResponse> {
         let root = self.modal_root()?;
         let style = engine.node(root)?.style;
-        if style.popup_anchor.is_some() && !style.modal_open {
-            return None;
-        }
         let consume = || EventResponse {
             handled: true,
             request_redraw: true,
@@ -333,14 +299,7 @@ impl Adapter {
             let inside = self
                 .modal_dialog(engine)
                 .and_then(|e| self.nodes.get(&e))
-                .and_then(|n| self.placed_indices.get(&n.id))
-                .is_some_and(|index| {
-                    let r = self.placed[*index].rect;
-                    point.x >= r[0] as f64
-                        && point.y >= r[1] as f64
-                        && point.x < r[2] as f64
-                        && point.y < r[3] as f64
-                });
+                .is_some_and(|node| self.visual_contains(node.id, point.x, point.y));
             if let UiEvent::Pointer(pointer) = event {
                 if matches!(pointer.phase, PointerPhase::Cancel | PointerPhase::Leave) {
                     self.backdrop_pressed = None;

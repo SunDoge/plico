@@ -125,6 +125,14 @@ fn portal_escapes_clip_traps_focus_and_restores_after_animated_nested_close() {
         s.build_frame(&mut text, 600, 500);
         assert_ne!(s.semantics().focus, Some(opener));
     }
+    let nested_opener = s
+        .semantics()
+        .node_by_role(SemanticRole::Button, "Nested", None)
+        .unwrap()
+        .id;
+    assert!(s.handle_semantic_action(SemanticAction::Focus {
+        target: nested_opener
+    }));
     assert!(click(&mut s, "Nested"));
     s.build_frame(&mut text, 600, 500);
     assert!(s.view().nested.is_open());
@@ -132,22 +140,23 @@ fn portal_escapes_clip_traps_focus_and_restores_after_animated_nested_close() {
     s.build_frame(&mut text, 600, 500);
     assert!(!s.view().nested.is_open());
     assert!(s.view().dialog.is_open());
+    assert_eq!(s.semantics().focus, Some(nested_opener));
     assert!(s.has_anim());
     let shows = s.view().shows;
     clock.advance(Duration::from_millis(70)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert_eq!(s.view().shows, shows);
     assert!(
-        s.semantics()
-            .node_by_role(SemanticRole::Dialog, "Confirm change", None)
-            .is_some()
+        s.placed_nodes()
+            .iter()
+            .any(|node| node.paint.text.as_deref() == Some("Confirm change"))
     );
     clock.advance(Duration::from_millis(100)).unwrap();
     s.build_frame(&mut text, 600, 500);
     assert!(
-        s.semantics()
-            .node_by_role(SemanticRole::Dialog, "Confirm change", None)
-            .is_none()
+        !s.placed_nodes()
+            .iter()
+            .any(|node| node.paint.text.as_deref() == Some("Confirm change"))
     );
     s.handle_event(key("Escape", Modifiers::empty()));
     s.build_frame(&mut text, 600, 500);
@@ -470,4 +479,75 @@ fn reduced_motion_material_mounts_and_unmounts_without_partial_frames() {
             .is_none()
     );
     assert!(!s.has_anim());
+}
+
+#[test]
+fn empty_modal_clears_background_focus_and_nested_autofocus_restores_opener() {
+    #[derive(Default)]
+    struct Empty {
+        background: TextBuffer,
+        inner: TextBuffer,
+        outer: ModalState,
+        nested: ModalState,
+        autofocus: bool,
+    }
+
+    impl HostView for Empty {
+        #[component]
+        fn show(&mut self, cx: &mut UiContext) {
+            text_input(cx, "Page input", &self.background);
+            modal(cx, &mut self.outer)
+                .title("Outer")
+                .header(false)
+                .children(|cx| {
+                    if self.autofocus {
+                        text_input(cx, "Inner input", &self.inner).request_focus(true);
+                    } else {
+                        text(cx, "Only text");
+                    }
+                    modal(cx, &mut self.nested)
+                        .title("Inner")
+                        .header(false)
+                        .children(|cx| {
+                            text(cx, "Nested text only");
+                        });
+                });
+        }
+    }
+
+    let clock = plico::VirtualClock::default();
+    let mut source = Source::with_clock(Empty::default(), clock);
+    let mut text = TextContext::new();
+    source.build_frame(&mut text, 600, 400);
+    let opener = source
+        .semantics()
+        .node_by_role(SemanticRole::TextInput, "Page input", None)
+        .unwrap()
+        .id;
+    assert!(source.handle_semantic_action(SemanticAction::Focus { target: opener }));
+    source.update(|view| view.outer.open());
+    source.build_frame(&mut text, 600, 400);
+    assert_eq!(source.semantics().focus, None);
+    source.handle_event(UiEvent::TextInput("blocked".into()));
+    source.handle_event(key("Tab", Modifiers::empty()));
+    assert_eq!(source.view().background.text().as_deref(), Some(""));
+
+    source.update(|view| view.autofocus = true);
+    source.build_frame(&mut text, 600, 400);
+    let inner_opener = source
+        .semantics()
+        .node_by_role(SemanticRole::TextInput, "Inner input", None)
+        .unwrap()
+        .id;
+    assert_eq!(source.semantics().focus, Some(inner_opener));
+    source.update(|view| view.nested.open());
+    source.build_frame(&mut text, 600, 400);
+    assert_eq!(source.semantics().focus, None);
+    source.handle_event(key("Escape", Modifiers::empty()));
+    source.build_frame(&mut text, 600, 400);
+    assert_eq!(source.semantics().focus, Some(inner_opener));
+
+    source.handle_event(key("Escape", Modifiers::empty()));
+    source.build_frame(&mut text, 600, 400);
+    assert_eq!(source.semantics().focus, Some(opener));
 }

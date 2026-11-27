@@ -131,6 +131,12 @@ pub enum PaintCommand {
         request: Arc<crate::paragraph::ParagraphRequest>,
         transform: Affine,
     },
+    /// A native paragraph rendered with the raster phase of its resting position.
+    MovingParagraph {
+        request: Arc<crate::paragraph::ParagraphRequest>,
+        transform: Affine,
+        offset: [f64; 2],
+    },
     /// Begin an isolated, clipped layer.
     PushLayer {
         /// Compositing mode.
@@ -217,6 +223,11 @@ pub enum PaintCommand {
 
 impl PaintCommand {
     fn transformed(mut self, parent: Affine) -> Self {
+        if let Self::MovingParagraph { offset, .. } = &mut self {
+            let [a, b, c, d, _, _] = parent.as_coeffs();
+            let [x, y] = *offset;
+            *offset = [a * x + c * y, b * x + d * y];
+        }
         let transform = match &mut self {
             Self::Fragment { transform, .. }
             | Self::PushLayer { transform, .. }
@@ -229,7 +240,8 @@ impl PaintCommand {
             | Self::Svg { transform, .. }
             | Self::Shader { transform, .. }
             | Self::ExternalSurface { transform, .. }
-            | Self::Paragraph { transform, .. } => transform,
+            | Self::Paragraph { transform, .. }
+            | Self::MovingParagraph { transform, .. } => transform,
             Self::PopLayer => return self,
         };
         *transform = parent * *transform;
@@ -573,6 +585,11 @@ pub trait PaintScene {
                 PaintCommand::Paragraph {
                     request,
                     transform: local,
+                }
+                | PaintCommand::MovingParagraph {
+                    request,
+                    transform: local,
+                    ..
                 } => self.draw_paragraph(request, transform * local),
                 PaintCommand::PushLayer {
                     blend,

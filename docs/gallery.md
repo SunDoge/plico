@@ -46,7 +46,7 @@ Controls 页的 Preferences 并排展示正常和禁用的 switch/checkbox，复
 
 图标来自完整固定版本的 Lucide SVG 集合；scripts/icons.ts（bun）获取上游资产并生成 plico::icons 常量，SVG 不提交进仓库。导航、项目卡片、保存/重置/归档/恢复与计数按钮使用真实 SVG。详见 [SVG 图标](icons.md)，真实截图在 reports/icons。
 
-Lists 页提供 10,000 条固定行高数据，通过 virtual_list 仅声明可见行和 overscan；见 [虚拟列表](virtual-list.md)。
+Lists 页提供 10,000 条固定行高数据，通过 `virtual_list` 只声明可见行和 overscan。点击「交换第 2、3 行」可以观察行位移动画。见 [虚拟列表](virtual-list.md)。
 
 ## 2048
 

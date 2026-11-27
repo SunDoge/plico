@@ -6,6 +6,22 @@ impl Adapter {
         if self.placed.is_empty() {
             return None;
         }
+        for flight in self.shared_matches.flights.iter().rev() {
+            for node in self.placed[flight.start..flight.end].iter().rev() {
+                let Some(entity) = self.reverse.get(&node.node_id).copied() else {
+                    continue;
+                };
+                if engine.node(entity).is_some_and(|n| {
+                    interactive(n.kind)
+                        && n.kind != Kind::Overlay
+                        && !n.style.disabled
+                        && self.modal_allows(engine, entity)
+                }) && self.visual_contains(node.node_id, x, y)
+                {
+                    return Some(entity);
+                }
+            }
+        }
         if self.hit.borrow().dirty || self.hit.borrow().subtrees.len() != self.placed.len() {
             self.rebuild_hit_cache();
         }

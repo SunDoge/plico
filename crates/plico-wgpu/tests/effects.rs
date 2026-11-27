@@ -876,6 +876,62 @@ fn builtin_liquid_glass_uses_reusable_mygo_fixed_gaussian_path() {
 
 #[test]
 #[ignore = "requires a working wgpu adapter"]
+fn fixed_backdrop_reuses_only_the_unchanged_local_prefix() {
+    use kurbo::{Affine, Rect};
+    use peniko::{Color, Fill};
+    use plico_renderer::{PaintScene, ShaderEffectId, ShaderEffectSource};
+    let source = ShaderEffectSource::with_backdrop(plico_renderer::shader::LIQUID_GLASS_WGSL, true)
+        .unwrap()
+        .with_backdrop_prefilter(Some(10.))
+        .unwrap()
+        .with_builtin(Some(plico::ShaderBuiltin::LiquidGlass))
+        .unwrap();
+    let mut text = TextContext::new();
+    let id = ShaderEffectId::new();
+    let mut incremental = pollster::block_on(Renderer::new()).unwrap();
+    let mut reference = pollster::block_on(Renderer::new()).unwrap();
+    let size = [192, 160];
+    for frame in 0..5 {
+        let mut scene = Scene::new();
+        let mut fill = |rect: Rect, color| {
+            scene.fill(Fill::NonZero, Affine::IDENTITY, color, None, &rect);
+        };
+        fill(Rect::new(0., 0., 192., 160.), Color::from_rgb8(20, 90, 110));
+        fill(
+            Rect::new(24., 25., 43., 45.),
+            if frame >= 2 {
+                Color::WHITE
+            } else {
+                Color::BLACK
+            },
+        );
+        fill(
+            Rect::new(170., 121., 182., 131.),
+            if frame >= 3 {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            },
+        );
+        let mut paint = plico_renderer::widget::PaintContext::new(48., 40., 1., &mut text);
+        paint.draw_shader_effect(id, source.clone(), frame as f32 * 0.1, Vec::new().into());
+        let x = if frame == 4 { 24. } else { 20. };
+        scene.append_scene(paint.finish(), Affine::translate((x, 20.)));
+
+        let actual = incremental
+            .render_scene(&scene, size, [0.; 4], true)
+            .unwrap();
+        let expected = reference
+            .render_scene(&scene, size, [0.; 4], false)
+            .unwrap();
+        assert_eq!(actual, expected, "stale backdrop at frame {frame}");
+        let copied = matches!(frame, 0 | 2 | 4);
+        assert_eq!(incremental.batch_stats().backdrop_copies, u64::from(copied));
+    }
+}
+
+#[test]
+#[ignore = "requires a working wgpu adapter"]
 fn liquid_glass_bends_straight_edges_along_their_surface_normal() {
     use kurbo::{Affine, Rect};
     use peniko::{Color, Fill, Gradient};

@@ -5,6 +5,7 @@
 use futures_util::stream::{FuturesUnordered, Stream};
 use slotmap::{Key as SlotMapKey, KeyData, SlotMap};
 use snafu::ResultExt;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -27,6 +28,7 @@ use winit::window::{
 };
 
 use crate::WindowResourceKey;
+use crate::performance_hud::{HudMetrics, HudSource, PerformanceHud};
 use crate::shell::Shell;
 use plico_renderer::platform::window_lifecycle::{
     WindowCapabilities, WindowEffect, WindowIntent, WindowLifecycle, WindowPresence,
@@ -158,8 +160,11 @@ pub struct App {
     force_semantics: bool,
     scheduled_frame_deadline: Option<Instant>,
     skipped_present_deadline: Option<Instant>,
+    #[cfg(target_os = "linux")]
+    wayland_clock: crate::frame_pacing::WaylandFrameClock,
     multi_click_settings: Option<plico_renderer::source::MultiClickSettings>,
-    performance_hud: crate::performance_hud::PerformanceHud,
+    hud_metrics: Option<Rc<RefCell<HudMetrics>>>,
+    inline_hud: Option<PerformanceHud>,
     #[cfg(feature = "recording")]
     recording: crate::window_recording::WindowRecording,
 }
@@ -167,6 +172,8 @@ pub struct App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, _event_loop: &dyn ActiveEventLoop) {
         self.skipped_present_deadline = None;
+        #[cfg(target_os = "linux")]
+        self.wayland_clock.reset();
         if let Some(shell) = self.state.as_mut() {
             shell.invalidate_presentation();
         }
@@ -195,27 +202,13 @@ impl ApplicationHandler for App {
         // Initial size: prefer the source's notion of viewport if it exposes one;
         // otherwise default. For now we read none from the source, so use a sane
         // default that the first resize will correct.
-        let mut shell = match Shell::create(event_loop, &self.window_options) {
-            Ok(shell) => shell,
-            Err(error) => {
-                *self
-                    .startup_error
-                    .lock()
-                    .expect("startup error mutex poisoned") = Some(error);
-                event_loop.exit();
-                return;
-            }
-        };
-        if let Some(wake) = self.wake_callback.clone() {
-            shell.observe_native_events(wake);
-            shell.refresh_display_preferences();
+        if let Err(error) = self.create_surface(event_loop) {
+            *self
+                .startup_error
+                .lock()
+                .expect("startup error mutex poisoned") = Some(error);
+            event_loop.exit();
         }
-        self.source.set_gpu_context(shell.gpu_context());
-        let window = shell.window().clone();
-        self.state = Some(shell);
-        self.sync_multi_click_settings();
-        self.sync_window_metrics();
-        window.request_redraw();
     }
 
     fn destroy_surfaces(&mut self, _event_loop: &dyn ActiveEventLoop) {
@@ -251,17 +244,11 @@ impl ApplicationHandler for App {
         // A reactive source keeps the redraw loop spinning at vsync while it has
         // pending rAF work; a static source idles (ControlFlow::Wait) until a
         // resize/close.
-        match self.next_frame_wake(Instant::now()) {
-            FrameWake::Redraw => {
-                event_loop.set_control_flow(ControlFlow::Wait);
-                if let Some(shell) = self.state.as_ref() {
-                    shell.window().request_redraw();
-                }
-            }
+        match self.service_frame_wake(Instant::now()) {
             FrameWake::Deadline(deadline) => {
                 event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
             }
-            FrameWake::Idle => event_loop.set_control_flow(ControlFlow::Wait),
+            _ => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 }
@@ -278,6 +265,7 @@ struct MultiWindowApp {
     /// sources stay alive and a fresh native surface is created when shown.
     hidden_windows: HashMap<WindowResourceKey, App>,
     window_resources: SlotMap<WindowSlotKey, ()>,
+    performance_hud: Option<(WindowResourceKey, WindowResourceKey)>,
     startup_errors: Vec<Arc<Mutex<Option<crate::Error>>>>,
     factory: Option<FrameSourceFactory>,
     wake: WakeCallback,

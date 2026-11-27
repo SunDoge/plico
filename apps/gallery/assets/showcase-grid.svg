@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 280" fill="currentColor">
+  <!-- Faded 40-DIP grid, with separate horizontal and vertical faces at intersections. -->
+  <path fill-opacity="0.005888" d="M120 0h40v1h-40z M360 0h40v1h-40z M120 240h40v1h-40z M360 240h40v1h-40z"/>
+  <path fill-opacity="0.005888" d="M120 0h1v40h-1z M360 0h1v40h-1z M120 240h1v40h-1z M360 240h1v40h-1z"/>
+  <path fill-opacity="0.007493" d="M0 80h40v1h-40z M480 80h40v1h-40z M0 160h40v1h-40z M480 160h40v1h-40z"/>
+  <path fill-opacity="0.007493" d="M0 80h1v40h-1z M480 80h1v40h-1z M0 160h1v40h-1z M480 160h1v40h-1z"/>
+  <path fill-opacity="0.009277" d="M40 40h40v1h-40z M440 40h40v1h-40z M40 200h40v1h-40z M440 200h40v1h-40z"/>
+  <path fill-opacity="0.009277" d="M40 40h1v40h-1z M440 40h1v40h-1z M40 200h1v40h-1z M440 200h1v40h-1z"/>
+  <path fill-opacity="0.017094" d="M0 120h40v1h-40z M480 120h40v1h-40z"/>
+  <path fill-opacity="0.017094" d="M0 120h1v40h-1z M480 120h1v40h-1z"/>
+  <path fill-opacity="0.019845" d="M160 0h40v1h-40z M320 0h40v1h-40z M160 240h40v1h-40z M320 240h40v1h-40z"/>
+  <path fill-opacity="0.019845" d="M160 0h1v40h-1z M320 0h1v40h-1z M160 240h1v40h-1z M320 240h1v40h-1z"/>
+  <path fill-opacity="0.028702" d="M200 0h40v1h-40z M280 0h40v1h-40z M200 240h40v1h-40z M280 240h40v1h-40z"/>
+  <path fill-opacity="0.028702" d="M200 0h1v40h-1z M280 0h1v40h-1z M200 240h1v40h-1z M280 240h1v40h-1z"/>
+  <path fill-opacity="0.031746" d="M240 0h40v1h-40z M240 240h40v1h-40z"/>
+  <path fill-opacity="0.031746" d="M240 0h1v40h-1z M240 240h1v40h-1z"/>
+  <path fill-opacity="0.035605" d="M80 40h40v1h-40z M400 40h40v1h-40z M80 200h40v1h-40z M400 200h40v1h-40z"/>
+  <path fill-opacity="0.035605" d="M80 40h1v40h-1z M400 40h1v40h-1z M80 200h1v40h-1z M400 200h1v40h-1z"/>
+  <path fill-opacity="0.039872" d="M40 80h40v1h-40z M440 80h40v1h-40z M40 160h40v1h-40z M440 160h40v1h-40z"/>
+  <path fill-opacity="0.039872" d="M40 80h1v40h-1z M440 80h1v40h-1z M40 160h1v40h-1z M440 160h1v40h-1z"/>
+  <path fill-opacity="0.051282" d="M40 120h40v1h-40z M440 120h40v1h-40z"/>
+  <path fill-opacity="0.051282" d="M40 120h1v40h-1z M440 120h1v40h-1z"/>
+  <path fill-opacity="0.058991" d="M120 40h40v1h-40z M360 40h40v1h-40z M120 200h40v1h-40z M360 200h40v1h-40z"/>
+  <path fill-opacity="0.058991" d="M120 40h1v40h-1z M360 40h1v40h-1z M120 200h1v40h-1z M360 200h1v40h-1z"/>
+  <path fill-opacity="0.071450" d="M80 80h40v1h-40z M400 80h40v1h-40z M80 160h40v1h-40z M400 160h40v1h-40z"/>
+  <path fill-opacity="0.071450" d="M80 80h1v40h-1z M400 80h1v40h-1z M80 160h1v40h-1z M400 160h1v40h-1z"/>
+  <path fill-opacity="0.077999" d="M160 40h40v1h-40z M320 40h40v1h-40z M160 200h40v1h-40z M320 200h40v1h-40z"/>
+  <path fill-opacity="0.077999" d="M160 40h1v40h-1z M320 40h1v40h-1z M160 200h1v40h-1z M320 200h1v40h-1z"/>
+  <path fill-opacity="0.085470" d="M80 120h40v1h-40z M400 120h40v1h-40z"/>
+  <path fill-opacity="0.085470" d="M80 120h1v40h-1z M400 120h1v40h-1z"/>
+  <path fill-opacity="0.090716" d="M200 40h40v1h-40z M280 40h40v1h-40z M200 200h40v1h-40z M280 200h40v1h-40z"/>
+  <path fill-opacity="0.090716" d="M200 40h1v40h-1z M280 40h1v40h-1z M200 200h1v40h-1z M280 200h1v40h-1z"/>
+  <path fill-opacity="0.095238" d="M240 40h40v1h-40z M240 200h40v1h-40z"/>
+  <path fill-opacity="0.095238" d="M240 40h1v40h-1z M240 200h1v40h-1z"/>
+  <path fill-opacity="0.100000" d="M120 80h40v1h-40z M160 80h40v1h-40z M200 80h40v1h-40z M240 80h40v1h-40z M280 80h40v1h-40z M320 80h40v1h-40z M360 80h40v1h-40z M120 120h40v1h-40z M160 120h40v1h-40z M200 120h40v1h-40z M240 120h40v1h-40z M280 120h40v1h-40z M320 120h40v1h-40z M360 120h40v1h-40z M120 160h40v1h-40z M160 160h40v1h-40z M200 160h40v1h-40z M240 160h40v1h-40z M280 160h40v1h-40z M320 160h40v1h-40z M360 160h40v1h-40z"/>
+  <path fill-opacity="0.100000" d="M120 80h1v40h-1z M160 80h1v40h-1z M200 80h1v40h-1z M240 80h1v40h-1z M280 80h1v40h-1z M320 80h1v40h-1z M360 80h1v40h-1z M120 120h1v40h-1z M160 120h1v40h-1z M200 120h1v40h-1z M240 120h1v40h-1z M280 120h1v40h-1z M320 120h1v40h-1z M360 120h1v40h-1z M120 160h1v40h-1z M160 160h1v40h-1z M200 160h1v40h-1z M240 160h1v40h-1z M280 160h1v40h-1z M320 160h1v40h-1z M360 160h1v40h-1z"/>
+</svg>

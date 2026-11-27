@@ -138,10 +138,14 @@ impl Library {
     }
 
     fn filtered(&self) -> Vec<&Asset> {
-        let query = self.query.to_lowercase();
-        self.assets
+        Self::filter_assets(&self.assets, self.filter, &self.query)
+    }
+
+    fn filter_assets<'a>(assets: &'a [Asset], filter: Filter, query: &str) -> Vec<&'a Asset> {
+        let query = query.to_lowercase();
+        assets
             .iter()
-            .filter(|asset| self.filter.includes(asset) && asset.search(&query))
+            .filter(|asset| filter.includes(asset) && asset.search(&query))
             .collect()
     }
 

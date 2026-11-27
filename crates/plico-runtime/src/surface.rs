@@ -4,9 +4,9 @@ use super::{HostView, Source};
 use plico::Engine;
 use plico_renderer::platform::effect::EffectId;
 use plico_renderer::{
-    EffectCompletion, EffectRequest, EventResponse, FrameSource, ImeState, MeasureContext,
-    PaintContext, Point, PointerPhase, Scene, TextContext, UiEvent, WakeCallback, Widget,
-    WidgetAvailableSpace, WidgetGeometry, WidgetNodeEvent, layout::PlacedNode,
+    EffectCompletion, EffectRequest, EventResponse, FrameSource, FrameStats, ImeState,
+    MeasureContext, PaintContext, Point, PointerPhase, Scene, TextContext, UiEvent, WakeCallback,
+    Widget, WidgetAvailableSpace, WidgetGeometry, WidgetNodeEvent, layout::PlacedNode,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
@@ -156,6 +156,14 @@ impl<V: HostView, W: Widget> SurfaceSource<V, W> {
         scale: f64,
     ) {
         self.scale = scale;
+        // With no hosted paint to splice in, use the same retained scene as
+        // any other Source. A widget registered on a different page should
+        // not make this page rebuild its entire paint stream every frame.
+        if !self.visible {
+            self.source.paint_scene(scene, nodes, text, size, scale);
+            self.drain();
+            return;
+        }
         if self.source.update_shader_scale(text, scale) {
             // The snapshot predates DPI-dependent shader rebuilding. Refresh only
             // shader fragments, preserving this wrapper's hosted widget painting.
@@ -470,6 +478,14 @@ impl<V: HostView, W: Widget> FrameSource for SurfaceSource<V, W> {
     fn base_color(&self) -> peniko::Color {
         self.source.base_color()
     }
+    fn augment_frame_stats(&self, stats: &mut FrameStats) {
+        self.source.augment_frame_stats(stats);
+        if self.visible {
+            // Native widget paint is assembled here, outside Source's cache.
+            stats.scene_commands = 0;
+            stats.scene_reused = false;
+        }
+    }
     fn has_anim(&self) -> bool {
         self.source.has_anim() || self.event_dirty
     }
@@ -493,6 +509,32 @@ mod tests {
     struct EmptyWidget;
     impl plico_renderer::Widget for EmptyWidget {
         fn paint(&mut self, _: &mut PaintContext<'_>) {}
+    }
+
+    #[test]
+    fn inactive_surface_uses_the_retained_scene_and_reports_it() {
+        struct StaticView;
+        impl HostView for StaticView {
+            fn show(&mut self, ui: &mut UiContext) {
+                text(ui, "Retained content");
+            }
+        }
+        let mut source = SurfaceSource::new(StaticView, EmptyWidget, "unused-slot");
+        let mut scene = Scene::new();
+        let mut text = TextContext::new();
+        source
+            .render_frame(&mut scene, &mut text, (320, 200), 1.)
+            .unwrap();
+        let original = scene.clone();
+        source
+            .render_frame(&mut scene, &mut text, (320, 200), 1.)
+            .unwrap();
+        let mut stats = FrameStats::default();
+        source.augment_frame_stats(&mut stats);
+        assert!(stats.scene_reused);
+        assert_eq!(stats.scene_commands as usize, original.commands.len());
+        assert!(!original.commands.is_empty());
+        assert_eq!(scene.commands, original.commands);
     }
     #[test]
     fn surface_paint_propagates_declaration_errors() {

@@ -22,46 +22,52 @@ pub fn tabs(cx: &mut UiContext, selected: &mut usize, labels: &[&str]) -> bool {
     if !labels.is_empty() {
         *selected = (*selected).min(labels.len() - 1);
     }
+    let current = *selected;
+    let mut next = current;
     let metrics = cx.theme().metrics;
     row(cx)
-        .gap(2)
+        .gap(metrics.space(1))
         .width_percent(100.)
         .semantic_role(crate::WidgetRole::TabList)
         .selection_follows_focus(true)
         .children(|cx| {
             for (index, label) in labels.iter().enumerate() {
-                let on = index == *selected;
+                let on = index == current;
                 let response = button_base(cx, *label)
                     .padding_x(metrics.space(3))
-                    .padding_y(metrics.space(2))
+                    .padding_y(metrics.control_padding_y())
+                    .min_height(metrics.control_height)
                     .radius(metrics.radius as f32)
-                    .hover_background(Color::ControlHover)
-                    .pressed_background(Color::ControlPressed)
                     .selected(on)
                     .semantic_role(crate::WidgetRole::Tab)
                     .children(|cx| {
+                        let emphasized = on || cx.hovered();
                         column(cx).gap(2).children(|cx| {
                             text(cx, *label)
                                 .font_size(metrics.font_size)
-                                .weight(if on { 600 } else { 400 })
-                                .color(if on { Color::Foreground } else { Color::Muted });
-                            // The accent underline keeps its slot in every
-                            // tab, painted only on the chosen one, so the strip
-                            // stays aligned (MyGO draws the line under the
-                            // chosen tab).
-                            let mut underline = column(cx).width_percent(100.).height(2.);
-                            if on {
-                                underline = underline.background(Color::Accent);
-                            }
-                            underline.children(|_| {});
+                                .weight(500)
+                                .color(if emphasized {
+                                    Color::Foreground
+                                } else {
+                                    Color::Muted
+                                });
+                            column(cx)
+                                .width_percent(100.)
+                                .height(2.)
+                                .radius(1.)
+                                .background(Color::Accent)
+                                .opacity(f32::from(on))
+                                .transition(metrics.interaction_ms)
+                                .end();
                         });
                     })
                     .response;
                 if response.clicked() {
-                    *selected = index;
+                    next = index;
                 }
             }
         });
+    *selected = next;
     *selected != before
 }
 

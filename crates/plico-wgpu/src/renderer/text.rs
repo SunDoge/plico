@@ -64,15 +64,11 @@ impl Renderer {
         for glyph in &run.layout.glyphs {
             let x = glyph.x * run.scale + run.origin[0];
             let y = glyph.y * run.scale * run.vertical_ratio + run.origin[1];
-            let quantized = (x * 4.).round() as i64;
             let (x, y, phase) = if run.continuous || run.scale != 1. {
                 (x, y, 0)
             } else {
-                (
-                    quantized.div_euclid(4) as f64,
-                    y.round(),
-                    quantized.rem_euclid(4) as u8,
-                )
+                let (x, phase) = crate::text_phase::horizontal(x, run.text_offset[0]);
+                (x, crate::text_phase::vertical(y, run.text_offset[1]), phase)
             };
             let [ix, iy, iw, ih] = glyph.ink_bounds;
             // Cull before rasterization/upload. Include hinting/phase/padding fringe.

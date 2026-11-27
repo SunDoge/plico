@@ -26,6 +26,8 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
         .padding_x(m.space(1))
         .padding_y(m.space(1))
         .gap(m.space(2))
+        .min_height(m.control_height)
+        .align(Align::Center)
         .radius(m.radius as f32)
         .selected(selected)
         .color(Color::Foreground)
@@ -34,35 +36,36 @@ pub fn radio(cx: &mut UiContext, label: &str, selected: bool) -> crate::Response
             // MyGO's radio row has no hover fill; only the unselected rim
             // turns accent under the pointer.
             let theme = cx.theme();
-            let hovered = cx.hovered();
-            let mut dot = column(cx)
+            let border = if selected || cx.hovered() {
+                Color::Accent
+            } else {
+                theme.blend(Color::Border, Color::Foreground, 0.25)
+            };
+            let _ = column(cx)
                 .width(m.space(4) as f32)
                 .height(m.space(4) as f32)
                 .radius(m.space(2) as f32)
                 .shrink(0.)
                 .align(Align::Center)
-                .justify(Justify::Center);
-            dot = if selected {
-                dot.background(Color::Accent)
-            } else {
-                let border = if hovered {
+                .justify(Justify::Center)
+                .background(if selected {
                     Color::Accent
                 } else {
-                    theme.blend(Color::Border, Color::Foreground, 0.25)
-                };
-                dot.background(Color::Panel).border(1., border)
-            };
-            let _ = dot.children(|cx| {
-                if selected {
+                    Color::Panel
+                })
+                .border(1., border)
+                .transition(m.interaction_ms)
+                .children(|cx| {
                     let inner = m.space(2) as f32 * 0.75;
-                    let _ = column(cx)
+                    column(cx)
                         .width(inner)
                         .height(inner)
                         .radius(inner / 2.)
                         .background(Color::OnAccent)
-                        .children(|_cx| {});
-                }
-            });
+                        .opacity(f32::from(selected))
+                        .transition(m.interaction_ms)
+                        .end();
+                });
             let _ = text(cx, label).font_size(m.font_size);
         })
         .response

@@ -31,6 +31,7 @@ mod scroll_motion;
 mod scrollbar_visibility;
 mod selection;
 mod shader;
+mod shared_match;
 mod slider;
 mod source;
 mod style_motion;
@@ -41,7 +42,7 @@ mod view;
 
 pub(crate) use adapter::Adapter;
 pub use adapter::BackendStats;
-pub(crate) use adapter::{interactive, make_paint, rgb, semantic_id};
+pub(crate) use adapter::{make_paint, rgb, semantic_id};
 pub use source::{BatchStats, FrameDiagnostics, HitTestDiagnostics, Source, SourceError};
 pub use view::{HostView, NativeView};
 

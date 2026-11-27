@@ -126,11 +126,29 @@ impl App {
             force_semantics: false,
             scheduled_frame_deadline: None,
             skipped_present_deadline: None,
+            #[cfg(target_os = "linux")]
+            wayland_clock: crate::frame_pacing::WaylandFrameClock::default(),
             multi_click_settings: None,
-            performance_hud: crate::performance_hud::PerformanceHud::from_environment(),
+            hud_metrics: None,
+            inline_hud: PerformanceHud::inline_from_environment(),
             #[cfg(feature = "recording")]
             recording: crate::window_recording::WindowRecording::from_environment(),
         }
+    }
+
+    pub(super) fn create_surface(&mut self, event_loop: &dyn ActiveEventLoop) -> crate::Result<()> {
+        let mut shell = Shell::create(event_loop, &self.window_options)?;
+        if let Some(wake) = self.wake_callback.clone() {
+            shell.observe_native_events(wake);
+            shell.refresh_display_preferences();
+        }
+        self.source.set_gpu_context(shell.gpu_context());
+        let window = shell.window().clone();
+        self.state = Some(shell);
+        self.sync_multi_click_settings();
+        self.sync_window_metrics();
+        window.request_redraw();
+        Ok(())
     }
 
     pub(super) fn set_wake_callback(&mut self, wake: WakeCallback) {

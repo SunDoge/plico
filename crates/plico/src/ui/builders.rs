@@ -463,6 +463,14 @@ macro_rules! common {
             #[inline(always)]
             pub fn translate(mut self, x: f32, y: f32) -> Self {
                 self.inner.style.translate = [x, y];
+                self.inner.style.translation_from_rest = false;
+                self
+            }
+            /// Move from the resting raster position without changing layout.
+            #[inline(always)]
+            pub fn translate_from_rest(mut self, x: f32, y: f32) -> Self {
+                self.inner.style.translate = [x, y];
+                self.inner.style.translation_from_rest = true;
                 self
             }
             #[inline(always)]
@@ -903,33 +911,25 @@ impl<R> InnerResponse<R> {
 
 pub(super) fn style_input(style: &mut Style, theme: Theme) {
     let m = theme.metrics;
-    style.min_height = Some(m.control_height as f32);
-    style.padding = 0.;
+    m.apply_control_frame(style);
     style.padding_x = Some(m.space(3) as f32);
-    style.padding_y = Some(m.spacing as f32 * 1.5);
-    style.radius = m.radius as f32;
     style.border_width = 1.;
     style.background = Some(Color::Panel);
-    style.transition_ms = m.interaction_ms;
 }
 
 /// Visual contexts for the same composed button, following MyGO styleButton.
 /// Kept outside widgets so shortcut and custom-content buttons share it.
-pub(super) enum ButtonAppearance {
+pub(crate) enum ButtonAppearance {
     Ordinary,
     Toolbar,
     Segment(bool),
 }
-pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAppearance) {
+pub(crate) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAppearance) {
     let m = theme.metrics;
-    style.transition_ms = m.interaction_ms;
-    style.padding = 0.;
+    m.apply_control_frame(style);
     style.padding_x = Some(m.spacing as f32 * 3.5);
-    style.padding_y = Some(m.spacing as f32 * 1.5);
     style.gap = m.spacing as f32 * 1.5;
     style.border_width = 1.;
-    style.radius = m.radius as f32;
-    style.min_height = Some(m.control_height as f32);
     style.background = Some(Color::Control);
     style.hover_background = Some(Color::ControlHover);
     style.pressed_background = Some(Color::ControlPressed);
@@ -949,7 +949,7 @@ pub(super) fn style_button(style: &mut Style, theme: Theme, appearance: ButtonAp
             // CUI's inset track uses a 3-point padding and one shared height.
             style.padding_y = Some(0.);
             style.radius = f32::from(m.inset_radius(m.radius, 3));
-            style.min_height = Some(f32::from(m.control_height.saturating_sub(6)));
+            style.min_height = Some(f32::from(m.control_small()));
             style.border_width = 0.;
             style.background = on.then_some(if theme.is_dark() {
                 theme.blend(Color::Panel, Color::Foreground, 0.17)
@@ -1147,8 +1147,8 @@ impl<'t> Input<'_, '_, 't> {
             .theme()
             .metrics;
         self.inner.style.min_height = Some(
-            (m.control_height as f32 - m.spacing as f32 * 3.)
-                .max(self.inner.style.font_size as f32),
+            (m.control_height as f32 - m.control_padding_y() * 2. - 2.)
+                .max(f32::from(self.inner.style.font_size) * 1.4),
         );
         self.inner.style.radius = 0.;
         self

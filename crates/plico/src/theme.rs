@@ -70,6 +70,17 @@ impl Metrics {
     pub const fn control_large(self) -> u16 {
         self.control_height.saturating_add(8)
     }
+    /// Vertical inset for buttons and fields at the active desktop density.
+    pub(crate) fn control_padding_y(self) -> f32 {
+        f32::from(self.spacing) * if self.control_height <= 30 { 1. } else { 1.5 }
+    }
+    pub(crate) fn apply_control_frame(self, style: &mut crate::Style) {
+        style.min_height = Some(f32::from(self.control_height));
+        style.radius = f32::from(self.radius);
+        style.transition_ms = self.interaction_ms;
+        style.padding = 0.;
+        style.padding_y = Some(self.control_padding_y());
+    }
     /// Even icon sizes stay aligned to physical-pixel grids at common scales.
     pub const fn icon_small(self) -> u16 {
         14
@@ -180,7 +191,7 @@ impl Theme {
             foreground: 0xf4f4f5,
             surface: 0x171719,
             accent: 0x3b82f6,
-            on_accent: 0xffffff,
+            on_accent: 0x0b1020,
             muted: 0xa1a1aa,
             panel: 0x202023,
             control: 0x28282c,
@@ -189,7 +200,7 @@ impl Theme {
             control_hover: 0x323236,
             control_pressed: 0x3c3c41,
             accent_hover: 0x60a5fa,
-            accent_pressed: 0x2563eb,
+            accent_pressed: 0x427ae8,
             focus: 0x436da1,
             info: 0x93c5fd,
             success: 0x22c55e,

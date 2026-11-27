@@ -19,8 +19,11 @@ impl WindowRenderer {
     ) -> crate::Result<Self> {
         #[cfg(feature = "wgpu")]
         {
-            let mut surface =
-                plico_wgpu::WgpuWindow::new(window, transparent).map_err(renderer_error)?;
+            #[cfg(target_os = "linux")]
+            let opened = plico_wgpu::WgpuWindow::new_with_wayland_clock(window, transparent);
+            #[cfg(not(target_os = "linux"))]
+            let opened = plico_wgpu::WgpuWindow::new(window, transparent);
+            let mut surface = opened.map_err(renderer_error)?;
             surface.resize(width, height);
             Ok(Self {
                 surface: Box::new(surface),
@@ -28,6 +31,14 @@ impl WindowRenderer {
         }
         #[cfg(not(feature = "wgpu"))]
         Err(wgpu_required())
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn uses_wayland_clock(&self) -> bool {
+        #[cfg(feature = "wgpu")]
+        return self.surface.uses_wayland_clock();
+        #[cfg(not(feature = "wgpu"))]
+        false
     }
 
     pub(crate) fn gpu_context(&self) -> Option<GpuContext> {

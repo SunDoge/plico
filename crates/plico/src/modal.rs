@@ -1,4 +1,5 @@
 //! Immediate modal declarations with portable presence state and host-owned motion.
+use crate::ui::{ButtonAppearance, style_button};
 use crate::{Align, Color, Justify, Key, Kind, Motion, Style, UiContext};
 use std::borrow::Cow;
 
@@ -606,29 +607,31 @@ impl<'s> Popover<'_, '_, 's> {
         let glass = self.modal.material;
         let trigger_icon = self.trigger_icon;
         let icon_only = trigger_icon.is_some_and(|(_, only)| only);
-        let custom_trigger = glass.is_some() || trigger_icon.is_some() || self.ghost_trigger;
+        let menu_trigger = self.modal.panel_role == Some(crate::WidgetRole::Menu);
+        let custom_trigger =
+            glass.is_some() || trigger_icon.is_some() || self.ghost_trigger || menu_trigger;
         let tinted_icon_trigger = !self.ghost_trigger
             && icon_only
             && glass.is_some_and(|material| material.tint_opacity > 0.);
         let mut style = Style {
             anchor_id: Some(anchor),
             width: trigger_text.as_ref().map(|_| self.modal.width),
-            gap: 8.,
             role: (self.modal.panel_role == Some(crate::WidgetRole::ListBox))
                 .then_some(crate::WidgetRole::ComboBox),
             expanded: Some(self.modal.state.is_open() && !self.modal.state.is_preview()),
             disabled,
-            styled_button: trigger_text.is_some() || self.ghost_trigger,
+            styled_button: trigger_text.is_some()
+                || self.ghost_trigger
+                || (glass.is_none() && custom_trigger),
             font_size: metrics.font_size,
-            transition_ms: metrics.interaction_ms,
-            padding_x: Some(metrics.spacing as f32 * 3.5),
-            padding_y: Some(metrics.spacing as f32 * 1.5),
-            border_width: 1.,
-            radius: metrics.radius as f32,
-            min_height: Some(metrics.control_height as f32),
-            background: Some(Color::Control),
             ..Default::default()
         };
+        let appearance = if self.ghost_trigger {
+            ButtonAppearance::Toolbar
+        } else {
+            ButtonAppearance::Ordinary
+        };
+        style_button(&mut style, ui.theme(), appearance);
         let liquid_list = glass.is_some()
             && (self.modal.over_anchor
                 || matches!(
@@ -646,9 +649,10 @@ impl<'s> Popover<'_, '_, 's> {
             && self.modal.motion != Motion::None;
         let label_opacity = f32::from(animate_morph || !covered);
         let trigger_glass = animate_morph || !covered;
-        if liquid_list {
+        if liquid_list && !self.ghost_trigger {
             style.gap = 8.;
             style.height = Some(48.);
+            style.min_height = None;
             style.radius = 24.;
             style.corner_smoothing = 0.;
             style.font_size = 15;
@@ -658,9 +662,19 @@ impl<'s> Popover<'_, '_, 's> {
             style.padding_y = Some(0.);
         }
         if icon_only {
-            style.width = Some(40.);
-            style.height = Some(40.);
-            style.radius = 20.;
+            let height = if glass.is_some() && !self.ghost_trigger {
+                style.min_height = None;
+                40.
+            } else {
+                f32::from(metrics.control_height)
+            };
+            style.width = Some(height);
+            style.height = Some(height);
+            style.radius = if glass.is_some() || self.ghost_trigger {
+                height / 2.
+            } else {
+                f32::from(metrics.radius)
+            };
             style.padding_x = Some(0.);
         }
         if glass.is_some() {
@@ -676,24 +690,22 @@ impl<'s> Popover<'_, '_, 's> {
             }
         }
         if self.ghost_trigger {
-            let height = f32::from(metrics.control_height);
-            style.height = Some(height);
-            style.padding_y = Some(0.);
-            style.border_width = 0.;
-            style.background = None;
-            style.hover_background = Some(Color::ControlHover);
-            style.pressed_background = Some(Color::ControlPressed);
-            style.radius = if icon_only {
-                height / 2.
+            style.justify = Some(if icon_only {
+                Justify::Center
             } else {
-                f32::from(metrics.radius)
-            };
-            style.width = if icon_only { Some(height) } else { style.width };
-            if !icon_only {
-                style.padding_x = Some(f32::from(metrics.spacing) * 2.5);
-                style.justify = Some(Justify::Start);
-            }
+                Justify::Start
+            });
         }
+        let icon_size = if glass.is_some() && !self.ghost_trigger {
+            16.
+        } else {
+            f32::from(metrics.control_icon())
+        };
+        let chevron_color = if glass.is_some() {
+            Color::Foreground
+        } else {
+            Color::Muted
+        };
         let (_, clicked) = ui.element(
             self.modal.key,
             if trigger_text.is_some() || custom_trigger {
@@ -725,7 +737,7 @@ impl<'s> Popover<'_, '_, 's> {
                 if custom_trigger && trigger_text.is_none() {
                     if let Some((icon, _)) = trigger_icon {
                         crate::widgets::svg(cx, &icon)
-                            .size(16., 16.)
+                            .size(icon_size, icon_size)
                             .color(if tinted_icon_trigger {
                                 Color::Literal(0x171717)
                             } else {
@@ -736,7 +748,8 @@ impl<'s> Popover<'_, '_, 's> {
                     if !icon_only {
                         crate::widgets::text(cx, self.modal.title.as_ref())
                             .opacity(label_opacity)
-                            .weight(if self.modal.panel_role == Some(crate::WidgetRole::Menu) {
+                            .ellipsis(true)
+                            .weight(if liquid_list && menu_trigger {
                                 600
                             } else if liquid_list {
                                 500
@@ -744,15 +757,18 @@ impl<'s> Popover<'_, '_, 's> {
                                 400
                             });
                     }
-                    if liquid_list && trigger_icon.is_none() {
+                    if (liquid_list || menu_trigger) && trigger_icon.is_none() {
                         crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN)
-                            .size(16., 16.)
-                            .opacity(label_opacity * 0.6);
+                            .size(icon_size, icon_size)
+                            .color(chevron_color)
+                            .opacity(label_opacity * if liquid_list { 0.6 } else { 1. });
                     }
                 }
                 if let Some(shown) = trigger_text.as_deref() {
-                    crate::widgets::text(cx, shown).grow(1.);
-                    crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN).size(16., 16.);
+                    crate::widgets::text(cx, shown).grow(1.).ellipsis(true);
+                    crate::widgets::svg(cx, &crate::icons::CHEVRON_DOWN)
+                        .size(icon_size, icon_size)
+                        .color(chevron_color);
                 }
             },
         );

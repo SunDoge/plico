@@ -40,14 +40,16 @@
 | Progress | `progress` | 标签、百分比与原生 progressbar 数值语义 |
 | Badge / Avatar / Ruby text | `badge` / `avatar` / `ruby_text` | 主题派生样式 |
 | Calendar | `calendar` / `calendar_content` | 月网格、范围模式、注入 today |
-| Tooltip / Popover | `tooltip` / `popover` | 锚定面板与 portal |
+| Tooltip / Popover | `tooltip` / `popover` | 锚定面板按窗口余量限制尺寸，内层滚动可用 |
+| Overlay focus | `modal` / `popover` | 空弹层隔离背景输入，关闭时先归还焦点，再完成退出动画 |
 | Select / Combobox / Autocomplete | `select`（可搜索） | 列表选择、过滤、稳定值 |
 | Menu / Context menu / Menu button | `menu` / `menu_item` | 命令菜单与 portal |
 | Dialog | `modal` | 模态、嵌套、Escape/backdrop 可配置 |
 | Slider | `slider` | 单值滑杆 |
 | Switch / Checkbox / Toggle | `switch` / `checkbox` | 受控布尔控件 |
+| Moving text | 框架属性转场 / `Layout::translate_from_rest` | 原生段落平移沿用静止位置的字形像素相位 |
 | Text input / Editable text | `text_input` / `text_input_string` | 原生编辑、IME、选择 |
-| Table / Grid view / List | `table_header` / `table_row` / `virtual_list` / `variable_virtual_list` | 固定表头；固定/可变行、稀疏测量、业务锚点及可打断 FollowEnd 动画 |
+| Table / Grid view / List | `table_header` / `table_row` / `virtual_list` / `variable_virtual_list` | 固定表头；固定/可变行、稀疏测量、业务锚点、FollowEnd 和可打断的行位移动画 |
 | Image / Icon / SVG | `image` / `svg` / `icon` | 资源缓存与 currentColor |
 | Shader | `shader` | WGSL surface |
 | Inspector | `property_field` | 属性行 |

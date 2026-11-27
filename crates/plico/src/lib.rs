@@ -38,7 +38,8 @@ pub use modal::{Modal, ModalResponse, ModalState, Popover, PopoverState};
 #[doc(hidden)]
 pub use motion::OpticalSpring;
 pub use motion::{
-    Animation, ContentTransition, ContentTransitionFrame, PinnedRect, SpringOptions, SpringPhysics,
+    Animation, ContentTransition, ContentTransitionFrame, PinnedRect, SharedElementFrame,
+    SharedElementGeometry, SharedElementMotion, SpringOptions, SpringPhysics,
 };
 pub use timeline::{
     LoopPhase, Placement, Pulse, REPEAT_FOREVER, Timeline, TimelineOffset, TimelineOptions, Tween,

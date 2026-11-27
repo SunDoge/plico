@@ -470,20 +470,26 @@ fn badge_ribbon(
             let offset = (offset + dt * f64::from(speed) * (rate + next_rate) * 0.5).fract();
             phase.commit((now, offset, next_rate));
             let count = (w / advance).ceil() as usize + 2;
-            for index in 0..count {
-                cx.keyed(index as u64, |cx| {
-                    let x = (index as f32 - offset as f32) * advance;
-                    row(cx)
-                        .absolute(x - 2., 0.)
-                        .height(height)
-                        .align(Align::Center)
-                        .gap(4)
-                        .children(|cx| {
-                            column(cx).width(4.).height(4.).background(ink).end();
-                            text(cx, label).font_size(12).weight(600).color(ink);
+            row(cx)
+                .absolute(-2., 0.)
+                .height(height)
+                .translate_from_rest(-(offset as f32) * advance, 0.)
+                .children(|cx| {
+                    for index in 0..count {
+                        cx.keyed(index as u64, |cx| {
+                            row(cx)
+                                .width(advance)
+                                .height(height)
+                                .shrink(0.)
+                                .align(Align::Center)
+                                .gap(4)
+                                .children(|cx| {
+                                    column(cx).width(4.).height(4.).background(ink).end();
+                                    text(cx, label).font_size(12).weight(600).color(ink);
+                                });
                         });
+                    }
                 });
-            }
             cx.request_animation_frame();
         }
         if !preferences.reduce_transparency {

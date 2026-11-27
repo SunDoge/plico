@@ -531,9 +531,9 @@ pub struct FrameStats {
     /// backend does not report it. Blended like the other timings; the first
     /// sample is kept at full weight.
     pub gpu_ms: Option<f64>,
-    /// Actual fraction of the acquired target redrawn in the last successful
-    /// frame, including buffer history. `None` means the backend does not
-    /// report it. This is a raw sample, unlike the timing EMAs.
+    /// Backend-reported damage fraction for the last successful frame.
+    /// Wgpu reports the estimated dirty area before choosing full or partial
+    /// redraw. `None` means the backend does not report damage.
     pub damage_coverage: Option<f64>,
     /// Number of retained nodes in the frame.
     pub node_count: usize,

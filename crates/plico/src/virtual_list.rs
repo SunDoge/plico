@@ -1,6 +1,9 @@
 use crate::{Animation, Key, Motion, UiContext, widgets::column};
 use std::ops::Range;
 
+mod row_moves;
+use row_moves::{RowMoves, Window as MoveWindow};
+
 // Variable-height indexing follows MyGO ui/list.go's sparse 64-row blocks:
 // https://github.com/egoist/mygo (MIT), revision
 // 6bd276dda679449336f68277eaaa988e1fadc54b. See licenses/MyGo-MIT.txt.
@@ -441,6 +444,7 @@ pub struct VirtualList<'u, 'e> {
     reveal: Option<usize>,
     follow_end: bool,
     follow_animation: Option<Animation>,
+    move_animation: Option<Animation>,
 }
 #[derive(Debug, Clone)]
 pub struct VirtualListResponse {
@@ -476,6 +480,7 @@ impl<'u, 'e> VirtualList<'u, 'e> {
             reveal: None,
             follow_end: false,
             follow_animation: None,
+            move_animation: None,
         }
     }
     pub fn height(mut self, height: f32) -> Self {
@@ -515,6 +520,13 @@ impl<'u, 'e> VirtualList<'u, 'e> {
     pub fn follow_end_with(mut self, animation: Animation) -> Self {
         self.follow_end = true;
         self.follow_animation = Some(animation);
+        self
+    }
+
+    /// Animate displacement of mounted rows after inserts, removals, or reordering.
+    /// The key passed to `rows` must identify an item across edits.
+    pub fn move_animation(mut self, animation: Animation) -> Self {
+        self.move_animation = Some(animation);
         self
     }
 
@@ -565,6 +577,7 @@ impl<'u, 'e> VirtualList<'u, 'e> {
             reveal,
             follow_end,
             follow_animation,
+            move_animation,
         } = self;
         layout
             .height(if fill { 0. } else { height })
@@ -613,6 +626,7 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                     extent,
                     height,
                 );
+                let mut jumped = false;
                 if let Some(index) = reveal.filter(|i| *i < count) {
                     let top = index as f32 * row_height;
                     let bottom = top + row_height;
@@ -624,6 +638,7 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                         offset
                     };
                     if target != offset {
+                        jumped = true;
                         list.follow.suspend();
                         offset = target.clamp(0., (count as f32 * row_height - height).max(0.));
                         if follow_animation.is_some() {
@@ -637,7 +652,30 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                 list.follow.finish(extent, height);
                 let rendered = crate::VisibleRegion::from_rect([0., offset, 1., offset + height])
                     .rows(count, row_height, overscan);
-                let (start, end) = (rendered.start, rendered.end);
+                let mut window = MoveWindow {
+                    range: rendered,
+                    count,
+                    offset,
+                    observed_offset,
+                    viewport: height,
+                    extent,
+                    jumped,
+                    following: follow_animation.is_some() && list.follow.following,
+                    variable: false,
+                };
+                let moves = move_animation.map(|animation| {
+                    let moves = cx.state(RowMoves::default);
+                    moves.value.borrow_mut().prepare(
+                        cx,
+                        animation,
+                        &mut window,
+                        &mut key,
+                        |index| (index as f32 * row_height, row_height),
+                    );
+                    moves
+                });
+                let moves = moves.as_ref().map(|state| state.value.borrow());
+                let Range { start, end } = window.range;
                 let anchor = if count == 0 {
                     0
                 } else {
@@ -654,8 +692,12 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                 // bookkeeping must not schedule a second declaration.
                 state.commit(list);
                 let mut row = |cx: &mut UiContext<'_>, index: usize| {
+                    let (key, offset) = moves
+                        .as_ref()
+                        .and_then(|moves| moves.row(index))
+                        .unwrap_or_else(|| (key(index).into(), 0.));
                     let layout = column(cx)
-                        .key(key(index))
+                        .key(key)
                         .height(row_height)
                         .width_percent(100.)
                         .shrink(0.)
@@ -663,6 +705,8 @@ impl<'u, 'e> VirtualList<'u, 'e> {
                         .motion(Motion::None);
                     let layout = if is_header.as_mut().is_some_and(|header| header(index)) {
                         layout.sticky(0.).sticky_push(true)
+                    } else if offset != 0. {
+                        layout.translate_from_rest(0., offset)
                     } else {
                         layout
                     };
@@ -723,6 +767,7 @@ pub struct VariableVirtualList<'u, 'e> {
     reveal: Option<usize>,
     follow_end: bool,
     follow_animation: Option<Animation>,
+    move_animation: Option<Animation>,
 }
 
 impl<'u, 'e> crate::ImplicitKey for VariableVirtualList<'u, 'e> {
@@ -752,6 +797,7 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
             reveal: None,
             follow_end: false,
             follow_animation: None,
+            move_animation: None,
         }
     }
 
@@ -791,6 +837,13 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
     pub fn follow_end_with(mut self, animation: Animation) -> Self {
         self.follow_end = true;
         self.follow_animation = Some(animation);
+        self
+    }
+
+    /// Animate displacement of mounted rows after inserts, removals, or reordering.
+    /// The key passed to `rows` must identify an item across edits.
+    pub fn move_animation(mut self, animation: Animation) -> Self {
+        self.move_animation = Some(animation);
         self
     }
 
@@ -840,6 +893,7 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
             reveal,
             follow_end,
             follow_animation,
+            move_animation,
         } = self;
         layout
             .height(if fill { 0. } else { height })
@@ -901,6 +955,7 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                     extent,
                     viewport_height,
                 );
+                let mut jumped = false;
                 if let Some(index) = reveal.filter(|index| *index < count) {
                     let top = list.heights.top(index) as f32;
                     let bottom = list.heights.top(index + 1) as f32;
@@ -912,6 +967,7 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                         offset
                     };
                     if target != offset {
+                        jumped = true;
                         list.follow.suspend();
                         offset = target.clamp(0., (extent - viewport_height).max(0.));
                         if follow_animation.is_some() {
@@ -927,8 +983,36 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                 } else {
                     (list.heights.row_at(f64::from(offset + viewport_height)) + 1).min(count)
                 };
-                let start = visible_start.saturating_sub(overscan);
-                let end = visible_end.saturating_add(overscan).min(count);
+                let mut window = MoveWindow {
+                    range: visible_start.saturating_sub(overscan)
+                        ..visible_end.saturating_add(overscan).min(count),
+                    count,
+                    offset,
+                    observed_offset,
+                    viewport: viewport_height,
+                    extent,
+                    jumped,
+                    following: follow_animation.is_some() && list.follow.following,
+                    variable: true,
+                };
+                let moves = move_animation.map(|animation| {
+                    let moves = cx.state(RowMoves::default);
+                    moves.value.borrow_mut().prepare(
+                        cx,
+                        animation,
+                        &mut window,
+                        &mut key,
+                        |index| {
+                            (
+                                list.heights.top(index) as f32,
+                                list.heights.height(index) as f32,
+                            )
+                        },
+                    );
+                    moves
+                });
+                let moves = moves.as_ref().map(|state| state.value.borrow());
+                let Range { start, end } = window.range;
                 let anchor_before = list.heights.top(visible_start) as f32;
                 let after = (list.heights.top(count) - list.heights.top(end)).max(0.) as f32;
                 list.anchor = visible_start;
@@ -941,13 +1025,19 @@ impl<'u, 'e> VariableVirtualList<'u, 'e> {
                     end.saturating_sub(start) + usize::from(pinned_header.is_some()),
                 );
                 let mut row = |cx: &mut UiContext<'_>, index: usize| {
+                    let (key, offset) = moves
+                        .as_ref()
+                        .and_then(|moves| moves.row(index))
+                        .unwrap_or_else(|| (key(index).into(), 0.));
                     let layout = column(cx)
-                        .key(key(index))
+                        .key(key)
                         .width_percent(100.)
                         .shrink(0.)
                         .motion(Motion::None);
                     let layout = if is_header.as_mut().is_some_and(|header| header(index)) {
                         layout.sticky(0.).sticky_push(true)
+                    } else if offset != 0. {
+                        layout.translate_from_rest(0., offset)
                     } else {
                         layout
                     };
